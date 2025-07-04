@@ -46,16 +46,22 @@ pub fn locate<'a>(
         .iter()
         .enumerate()
         .filter(|(_i, block)| {
-            // An empty block cannot be selected unless explicitly requested.
-            if matches!(block, Block::Empty) && selector.select_type.as_deref() != Some("empty") {
-                return false;
-            }
-
+            // First, check the type selector. This is fast.
             let type_match = selector
                 .select_type
                 .as_ref()
                 .map_or(true, |t| block_type_matches(block, t));
 
+            if !type_match {
+                return false;
+            }
+
+            // If there are no text-based selectors, we have a match.
+            if selector.select_contains.is_none() && selector.select_regex.is_none() {
+                return true;
+            }
+
+            // Only now, if we have text selectors, do we compute the text content.
             let text_content = block_to_text(block);
 
             let contains_match = selector
@@ -68,7 +74,8 @@ pub fn locate<'a>(
                 .as_ref()
                 .map_or(true, |re| re.is_match(&text_content));
 
-            type_match && contains_match && regex_match
+            // The final result is the AND of the text-based checks.
+            contains_match && regex_match
         })
         .collect();
 
@@ -87,29 +94,38 @@ pub fn locate<'a>(
         })
         .ok_or(SpliceError::NodeNotFound)
 }
-
-
 /// Checks if a block matches the string representation of its type.
+/// This version is more explicit and robust for handling heading levels.
 fn block_type_matches(block: &Block, type_str: &str) -> bool {
-    match type_str.to_lowercase().as_str() {
-        "p" | "paragraph" => matches!(block, Block::Paragraph(_)),
-        "h1" => matches!(block, Block::Heading(Heading { kind: HeadingKind::Atx(1) | HeadingKind::Setext(SetextHeading::Level1), .. })),
-        "h2" => matches!(block, Block::Heading(Heading { kind: HeadingKind::Atx(2) | HeadingKind::Setext(SetextHeading::Level2), .. })),
-        "h3" => matches!(block, Block::Heading(Heading { kind: HeadingKind::Atx(3), .. })),
-        "h4" => matches!(block, Block::Heading(Heading { kind: HeadingKind::Atx(4), .. })),
-        "h5" => matches!(block, Block::Heading(Heading { kind: HeadingKind::Atx(5), .. })),
-        "h6" => matches!(block, Block::Heading(Heading { kind: HeadingKind::Atx(6), .. })),
-        "heading" => matches!(block, Block::Heading(_)),
-        "list" => matches!(block, Block::List(_)),
-        "table" => matches!(block, Block::Table(_)),
-        "blockquote" => matches!(block, Block::BlockQuote(_)),
-        "code" | "codeblock" => matches!(block, Block::CodeBlock(_)),
-        "html" | "htmlblock" => matches!(block, Block::HtmlBlock(_)),
-        "thematicbreak" => matches!(block, Block::ThematicBreak),
-        "definition" => matches!(block, Block::Definition(_)),
-        "footnotedefinition" => matches!(block, Block::FootnoteDefinition(_)),
-        "empty" => matches!(block, Block::Empty),
-        _ => false,
+    let type_str = type_str.to_lowercase();
+    match block {
+        Block::Paragraph(_) => type_str == "p" || type_str == "paragraph",
+        Block::Heading(h) => {
+            let level = match h.kind {
+                HeadingKind::Atx(level) => level,
+                HeadingKind::Setext(SetextHeading::Level1) => 1,
+                HeadingKind::Setext(SetextHeading::Level2) => 2,
+            };
+            match type_str.as_str() {
+                "heading" => true,
+                "h1" if level == 1 => true,
+                "h2" if level == 2 => true,
+                "h3" if level == 3 => true,
+                "h4" if level == 4 => true,
+                "h5" if level == 5 => true,
+                "h6" if level == 6 => true,
+                _ => false,
+            }
+        }
+        Block::List(_) => type_str == "list",
+        Block::Table(_) => type_str == "table",
+        Block::BlockQuote(_) => type_str == "blockquote",
+        Block::CodeBlock(_) => type_str == "code" || type_str == "codeblock",
+        Block::HtmlBlock(_) => type_str == "html" || type_str == "htmlblock",
+        Block::ThematicBreak => type_str == "thematicbreak",
+        Block::Definition(_) => type_str == "definition",
+        Block::FootnoteDefinition(_) => type_str == "footnotedefinition",
+        Block::Empty => type_str == "empty",
     }
 }
 
@@ -182,14 +198,12 @@ fn block_to_text(block: &Block) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
 
-    const TEST_MARKDOWN: &str = r#"
-# A Heading
+    const TEST_MARKDOWN: &str = r#"# A Heading
 
 This is the first paragraph.
 
@@ -314,8 +328,7 @@ fn main() {
         assert!(!is_ambiguous, "should not detect ambiguity as there is only one code block");
     }
 
-    const AMBIGUOUS_MARKDOWN: &str = r#"
-# Title
+    const AMBIGUOUS_MARKDOWN: &str = r#"# Title
 
 A paragraph.
 
@@ -342,8 +355,7 @@ A final paragraph, also with a Note.
         assert!(result.is_ok(), "locate should find a matching block");
         let (found, is_ambiguous) = result.unwrap();
 
-        // AST: Empty, H1, P, P, P, P
-        // Blocks are: H1, P, P, P, P. (The parser creates clean blocks)
+        // Blocks are: H1, P, P, P, P.
         // Paragraphs with "Note" are at indices 2 and 4.
         // The second one is at index 4.
         assert_eq!(
@@ -388,6 +400,7 @@ A final paragraph, also with a Note.
         let result_ambiguous = locate(&doc.blocks, &selector_ambiguous);
         assert!(result_ambiguous.is_ok());
         let (found, is_ambiguous) = result_ambiguous.unwrap();
+        // First match is at index 2
         assert_eq!(found.index, 2);
         assert!(
             is_ambiguous,
