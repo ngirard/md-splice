@@ -38,44 +38,41 @@ pub fn locate<'a>(
     blocks: &'a [Block],
     selector: &Selector,
 ) -> Result<(FoundBlock<'a>, bool), SpliceError> {
-    // The ordinal is 1-indexed, so we must subtract 1 for indexing.
-    // We also must ensure it's not zero to prevent underflow.
     let ordinal_index = selector.select_ordinal.saturating_sub(1);
 
     let matches: Vec<_> = blocks
         .iter()
         .enumerate()
         .filter(|(_i, block)| {
-            // First, check the type selector. This is fast.
-            let type_match = selector
-                .select_type
-                .as_ref()
-                .map_or(true, |t| block_type_matches(block, t));
-
-            if !type_match {
-                return false;
+            // Filter by type. If the selector is present, the block must match.
+            if let Some(type_str) = &selector.select_type {
+                if !block_type_matches(block, type_str) {
+                    return false;
+                }
             }
 
-            // If there are no text-based selectors, we have a match.
-            if selector.select_contains.is_none() && selector.select_regex.is_none() {
-                return true;
+            // If there are any text-based selectors, we need to check them.
+            // We compute the text content only once, and only if needed.
+            if selector.select_contains.is_some() || selector.select_regex.is_some() {
+                let text_content = block_to_text(block);
+
+                // Filter by substring containment.
+                if let Some(contains_str) = &selector.select_contains {
+                    if !text_content.contains(contains_str) {
+                        return false;
+                    }
+                }
+
+                // Filter by regex match.
+                if let Some(re) = &selector.select_regex {
+                    if !re.is_match(&text_content) {
+                        return false;
+                    }
+                }
             }
 
-            // Only now, if we have text selectors, do we compute the text content.
-            let text_content = block_to_text(block);
-
-            let contains_match = selector
-                .select_contains
-                .as_ref()
-                .map_or(true, |text| text_content.contains(text));
-
-            let regex_match = selector
-                .select_regex
-                .as_ref()
-                .map_or(true, |re| re.is_match(&text_content));
-
-            // The final result is the AND of the text-based checks.
-            contains_match && regex_match
+            // If we've passed all the checks, it's a match.
+            true
         })
         .collect();
 
@@ -94,6 +91,7 @@ pub fn locate<'a>(
         })
         .ok_or(SpliceError::NodeNotFound)
 }
+
 /// Checks if a block matches the string representation of its type.
 /// This version is more explicit and robust for handling heading levels.
 fn block_type_matches(block: &Block, type_str: &str) -> bool {
