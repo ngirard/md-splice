@@ -31,35 +31,63 @@ pub struct Selector {
 ///
 /// # Returns
 ///
-/// A `Result` containing a `FoundBlock` on success, or a `SpliceError` if no
-/// node is found or if there's an issue with the selectors.
+/// A `Result` containing a tuple of `(FoundBlock, bool)` on success, where the
+/// boolean is `true` if more than one node matched the criteria (indicating ambiguity).
+/// Returns a `SpliceError` if no node is found.
 pub fn locate<'a>(
     blocks: &'a [Block],
     selector: &Selector,
-) -> Result<FoundBlock<'a>, SpliceError> {
-    // The ordinal is 1-indexed, so we must subtract 1 for `nth`.
+) -> Result<(FoundBlock<'a>, bool), SpliceError> {
+    // The ordinal is 1-indexed, so we must subtract 1 for indexing.
     // We also must ensure it's not zero to prevent underflow.
     let ordinal_index = selector.select_ordinal.saturating_sub(1);
 
-    let mut matches = blocks.iter().enumerate().filter(|(_i, block)| {
-        let type_match = selector
-            .select_type
-            .as_ref()
-            .map_or(true, |t| block_type_matches(block, t));
+    let matches: Vec<_> = blocks
+        .iter()
+        .enumerate()
+        .filter(|(_i, block)| {
+            // An empty block cannot be selected unless explicitly requested.
+            if matches!(block, Block::Empty) && selector.select_type.as_deref() != Some("empty") {
+                return false;
+            }
 
-        let contains_match = selector
-            .select_contains
-            .as_ref()
-            .map_or(true, |text| block_to_text(block).contains(text));
+            let type_match = selector
+                .select_type
+                .as_ref()
+                .map_or(true, |t| block_type_matches(block, t));
 
-        type_match && contains_match
-    });
+            let text_content = block_to_text(block);
+
+            let contains_match = selector
+                .select_contains
+                .as_ref()
+                .map_or(true, |text| text_content.contains(text));
+
+            let regex_match = selector
+                .select_regex
+                .as_ref()
+                .map_or(true, |re| re.is_match(&text_content));
+
+            type_match && contains_match && regex_match
+        })
+        .collect();
+
+    let is_ambiguous = matches.len() > 1;
 
     matches
-        .nth(ordinal_index)
-        .map(|(index, block)| FoundBlock { index, block })
+        .get(ordinal_index)
+        .map(|(index, block)| {
+            (
+                FoundBlock {
+                    index: *index,
+                    block,
+                },
+                is_ambiguous,
+            )
+        })
         .ok_or(SpliceError::NodeNotFound)
 }
+
 
 /// Checks if a block matches the string representation of its type.
 fn block_type_matches(block: &Block, type_str: &str) -> bool {
@@ -168,7 +196,7 @@ This is the first paragraph.
 - A list item
 - Another list item
 
-This is the second paragraph.
+This is the second paragraph. Note the content.
 
 ```rust
 fn main() {
@@ -190,7 +218,7 @@ fn main() {
         let result = locate(&doc.blocks, &selector);
 
         assert!(result.is_ok(), "locate should find a matching block");
-        let found = result.unwrap();
+        let (found, is_ambiguous) = result.unwrap();
 
         // The first paragraph is the second block (index 1) after the H1.
         assert_eq!(
@@ -201,6 +229,7 @@ fn main() {
             }
         );
         assert!(matches!(found.block, Block::Paragraph(_)));
+        assert!(is_ambiguous, "should detect ambiguity as there are two paragraphs");
     }
 
     #[test]
@@ -216,7 +245,7 @@ fn main() {
         let result = locate(&doc.blocks, &selector);
 
         assert!(result.is_ok(), "locate should find a matching block");
-        let found = result.unwrap();
+        let (found, is_ambiguous) = result.unwrap();
 
         // The markdown has: H1, P, List, P, CodeBlock.
         // So the second paragraph is at index 3.
@@ -228,6 +257,7 @@ fn main() {
             }
         );
         assert!(matches!(found.block, Block::Paragraph(_)));
+        assert!(is_ambiguous, "should detect ambiguity as there are two paragraphs");
     }
 
     #[test]
@@ -236,13 +266,14 @@ fn main() {
         let doc = parse_markdown(MarkdownParserState::default(), TEST_MARKDOWN).unwrap();
         let selector = Selector {
             select_contains: Some("Heading".to_string()),
+            select_ordinal: 1,
             ..Default::default()
         };
 
         let result = locate(&doc.blocks, &selector);
 
         assert!(result.is_ok(), "locate should find a matching block");
-        let found = result.unwrap();
+        let (found, is_ambiguous) = result.unwrap();
 
         // The first block (index 0) is the H1 with content "A Heading".
         assert_eq!(
@@ -253,5 +284,130 @@ fn main() {
             }
         );
         assert!(matches!(found.block, Block::Heading(_)));
+        assert!(!is_ambiguous, "should not detect ambiguity as there is only one heading");
+    }
+
+    #[test]
+    fn test_l4_select_code_block_by_content_regex() {
+        // L4 (Content Regex): Select a code block matching a regex.
+        let doc = parse_markdown(MarkdownParserState::default(), TEST_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_regex: Some(Regex::new(r"Hello, World!").unwrap()),
+            select_ordinal: 1,
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+
+        assert!(result.is_ok(), "locate should find a matching block");
+        let (found, is_ambiguous) = result.unwrap();
+
+        // The code block is the last block (index 4).
+        assert_eq!(
+            found,
+            FoundBlock {
+                index: 4,
+                block: &doc.blocks[4]
+            }
+        );
+        assert!(matches!(found.block, Block::CodeBlock(_)));
+        assert!(!is_ambiguous, "should not detect ambiguity as there is only one code block");
+    }
+
+    const AMBIGUOUS_MARKDOWN: &str = r#"
+# Title
+
+A paragraph.
+
+Another paragraph with a Note.
+
+A list.
+
+A final paragraph, also with a Note.
+"#;
+
+    #[test]
+    fn test_l5_select_combined_selectors() {
+        // L5 (Combined Selectors): Select the 2nd paragraph that contains "Note".
+        let doc = parse_markdown(MarkdownParserState::default(), AMBIGUOUS_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("p".to_string()),
+            select_contains: Some("Note".to_string()),
+            select_ordinal: 2,
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+
+        assert!(result.is_ok(), "locate should find a matching block");
+        let (found, is_ambiguous) = result.unwrap();
+
+        // AST: Empty, H1, P, P, P, P
+        // Blocks are: H1, P, P, P, P. (The parser creates clean blocks)
+        // Paragraphs with "Note" are at indices 2 and 4.
+        // The second one is at index 4.
+        assert_eq!(
+            found,
+            FoundBlock {
+                index: 4,
+                block: &doc.blocks[4]
+            }
+        );
+        assert!(is_ambiguous, "should have detected ambiguity");
+    }
+
+    #[test]
+    fn test_l6_no_match_returns_error() {
+        // L6 (No Match): Verify SpliceError::NodeNotFound.
+        let doc = parse_markdown(MarkdownParserState::default(), TEST_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("h2".to_string()), // No h2 in TEST_MARKDOWN
+            select_ordinal: 1,
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SpliceError::NodeNotFound));
+    }
+
+    #[test]
+    fn test_l7_ambiguity_detection() {
+        // L7 (Ambiguity Warning): Verify the ambiguity flag is set correctly.
+        let doc = parse_markdown(MarkdownParserState::default(), AMBIGUOUS_MARKDOWN).unwrap();
+
+        // Case 1: Ambiguous selector
+        let selector_ambiguous = Selector {
+            select_type: Some("p".to_string()),
+            select_contains: Some("Note".to_string()),
+            select_ordinal: 1,
+            ..Default::default()
+        };
+
+        let result_ambiguous = locate(&doc.blocks, &selector_ambiguous);
+        assert!(result_ambiguous.is_ok());
+        let (found, is_ambiguous) = result_ambiguous.unwrap();
+        assert_eq!(found.index, 2);
+        assert!(
+            is_ambiguous,
+            "Expected ambiguity to be true when multiple nodes match criteria"
+        );
+
+        // Case 2: Unambiguous selector
+        let selector_unambiguous = Selector {
+            select_type: Some("h1".to_string()),
+            select_ordinal: 1,
+            ..Default::default()
+        };
+
+        let result_unambiguous = locate(&doc.blocks, &selector_unambiguous);
+        assert!(result_unambiguous.is_ok());
+        let (found, is_ambiguous) = result_unambiguous.unwrap();
+        assert_eq!(found.index, 0);
+        assert!(
+            !is_ambiguous,
+            "Expected ambiguity to be false when only one node matches"
+        );
     }
 }
