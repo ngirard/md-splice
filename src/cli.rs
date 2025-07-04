@@ -8,15 +8,16 @@ use std::path::PathBuf;
 pub struct Cli {
     /// The Markdown file to modify.
     #[arg(short, long, global = true, value_name = "FILE_PATH")]
-    pub file: PathBuf,
+    pub file: Option<PathBuf>,
 
     /// Write the output to a new file instead of modifying the original.
-    #[arg(short, long, global =true, value_name = "OUTPUT_PATH")]
+    #[arg(short, long, global = true, value_name = "OUTPUT_PATH")]
     pub output: Option<PathBuf>,
 
     #[command(subcommand)]
     pub command: Command,
 }
+
 
 #[derive(Subcommand, Debug)]
 pub enum Command {

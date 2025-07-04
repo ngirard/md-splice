@@ -1,7 +1,7 @@
 //! Contains the logic for modifying the Markdown AST (inserting/replacing nodes).
 
 use crate::{cli::InsertPosition, error::SpliceError};
-use markdown_ppp::ast::{Block, FootnoteDefinition, Heading, HeadingKind, SetextHeading};
+use markdown_ppp::ast::{Block, Heading, HeadingKind, SetextHeading};
 
 /// Replaces a block at a specific index with a new set of blocks.
 ///
@@ -105,14 +105,16 @@ fn get_heading_level(block: &Block) -> Option<u8> {
 /// The section ends just before the next heading of the same or higher level,
 /// or at the end of the document.
 fn find_heading_section_end(blocks: &[Block], start_index: usize, target_level: u8) -> usize {
-    for i in (start_index + 1)..blocks.len() {
-        if let Some(level) = get_heading_level(&blocks[i]) {
+    // We skip to the block after the starting one and find the first block
+    // that meets the end-of-section criteria.
+    for (i, block) in blocks.iter().enumerate().skip(start_index + 1) {
+        if let Some(level) = get_heading_level(block) {
             if level <= target_level {
-                return i; // Found the boundary.
+                return i; // Found the boundary, return its index.
             }
         }
     }
-    blocks.len() // Reached the end of the document.
+    blocks.len() // Reached the end of the document, return the length as the end index.
 }
 
 /// Gets a user-friendly name for a block type, used in error messages.

@@ -1,0 +1,13 @@
+---
+source: tests/cli.rs
+expression: output_content
+---
+# Title
+
+First paragraph.
+
+## A New Subheading
+
+*And a list item.*
+
+Second paragraph.

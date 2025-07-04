@@ -1,0 +1,7 @@
+---
+source: tests/cli.rs
+expression: output_content
+---
+# Title
+
+This content comes from a file.

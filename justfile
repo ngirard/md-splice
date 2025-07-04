@@ -3,10 +3,6 @@
 # Default task: run all checks and tests
 default: check test
 
-# Run all tests
-test:
-    cargo test -- --nocapture
-
 # Run tests and automatically re-run on file changes.
 # Requires `cargo install cargo-watch`.
 watch:
@@ -17,17 +13,27 @@ check:
     cargo check
 
 # Run clippy for linting and style checks
-lint:
+lint: check
     cargo clippy -- -D warnings
+
+# Run all tests
+test: lint
+    #!/usr/bin/env bash
+    set -e
+    # cargo test -- --nocapture
+    RUST_BACKTRACE=1 cargo test --workspace
+    #cargo insta test --review
+    cargo insta test
+
+# Review and accept/reject any snapshot changes from `insta`.
+insta-review:
+    cargo insta review
+
 
 # Run the application with given arguments.
 # Example: `just run -- --file README.md --help`
 run *args:
     cargo run -- {{args}}
-
-# Review and accept/reject any snapshot changes from `insta`.
-insta:
-    cargo insta review
 
 # Generate a directory snapshot for the project
 snapshot:

@@ -1,0 +1,56 @@
+[env]
+# Define the list of required tools here. This is your single source of truth.
+DEV_TOOLS = ["cargo-insta"]
+
+[tasks.install-dev-tools]
+description = "Install all required development command-line tools."
+# Use an explicit command for clarity and to avoid schema validation issues.
+command = "cargo"
+args = ["binstall", "--no-confirm", "${DEV_TOOLS}"]
+
+[tasks.bootstrap]
+description = "Prepares the development environment, including tools and dependencies."
+dependencies = ["install-dev-tools"]
+script = '''
+#!/bin/bash
+set -euo pipefail
+
+echo "--- Bootstrapping project dependencies ---"
+
+# 1. Ensure Rust is installed via rustup
+if ! command -v rustup &> /dev/null; then
+    echo "rustup not found. Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+else
+    echo "Rustup is already installed. Updating..."
+    rustup update
+fi
+
+# 2. Install essential Rust components
+echo "--- Installing required Rust components (fmt, clippy) ---"
+rustup component add rustfmt clippy
+
+# 3. Perform initial build to download and cache dependencies
+echo "--- Performing initial build to warm up dependency cache ---"
+cargo build
+
+echo "--- Environment is ready. You can now run 'cargo make check-all'. ---"
+'''
+
+[tasks.test]
+description = "Run all tests."
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.fmt]
+command = "cargo"
+args = ["fmt"]
+
+[tasks.clippy]
+command = "cargo"
+args = ["clippy", "--", "-D", "warnings"]
+
+[tasks.check-all]
+description = "Run all quality checks (format, lint, test)."
+dependencies = ["fmt", "clippy", "test"]

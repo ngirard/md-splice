@@ -1,0 +1,5 @@
+---
+source: tests/cli.rs
+expression: redact_version(&stdout)
+---
+md-splice [VERSION]

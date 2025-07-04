@@ -2,7 +2,7 @@
 
 use crate::error::SpliceError;
 use markdown_ppp::ast::{
-    Block, FootnoteDefinition, Heading, HeadingKind, Inline, List, SetextHeading, Table,
+    Block, FootnoteDefinition, HeadingKind, Inline, List, SetextHeading, Table,
 };
 use regex::Regex;
 

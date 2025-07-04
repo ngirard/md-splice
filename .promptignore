@@ -2,3 +2,6 @@ devel/prompts
 target
 Cargo.lock
 
+# !
+devel/DEVELOPMENT_PLAN.md
+#devel/markdown-ppp_repo_snapshot.md

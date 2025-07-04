@@ -1,0 +1,9 @@
+---
+source: tests/cli.rs
+expression: output_content
+---
+# Title
+
+**This is the new content.**
+
+Another paragraph.

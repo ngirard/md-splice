@@ -1,0 +1,48 @@
+---
+source: tests/cli.rs
+expression: redact_version(&stdout)
+---
+Replace a Markdown node with new content
+
+Usage: md-splice replace [OPTIONS]
+
+Options:
+  -c, --content <MARKDOWN_STRING>
+          The Markdown content to insert or replace with
+
+  -f, --file <FILE_PATH>
+          The Markdown file to modify
+
+      --content-file <CONTENT_PATH>
+          A file containing the Markdown content to insert or replace with
+
+  -o, --output <OUTPUT_PATH>
+          Write the output to a new file instead of modifying the original
+
+      --select-type <TYPE>
+          Select node by type (e.g., 'p', 'h1', 'list', 'table')
+
+      --select-contains <TEXT>
+          Select node by its text content (fixed string)
+
+      --select-regex <REGEX>
+          Select node by its text content (regex pattern)
+
+      --select-ordinal <N>
+          Select the Nth matching node (1-indexed). Default is 1
+          
+          [default: 1]
+
+  -p, --position <POSITION>
+          Position for the 'insert' operation
+          
+          [default: after]
+
+          Possible values:
+          - before:        Insert before the selected node (as a sibling)
+          - after:         Insert after the selected node (as a sibling)
+          - prepend-child: Insert as the first child of the selected node/section
+          - append-child:  Insert as the last child of the selected node/section
+
+  -h, --help
+          Print help (see a summary with '-h')
