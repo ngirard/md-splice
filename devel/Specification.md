@@ -9,11 +9,11 @@
 
 The tool will operate on a "Parse-Locate-Modify-Render" cycle for every invocation.
 
-1. **Parse**: The input Markdown file is read and parsed into a `markdown_ppp::ast::Document` using `markdown_ppp::parser::parse_markdown`. All link definitions and footnotes are indexed for correct rendering later.
+1. **Parse**: The input Markdown is read and parsed into a `markdown_ppp::ast::Document`. If the `--file` argument is provided, the content is read from that file. Otherwise, it is read from STDIN.
 2. **Locate**: The `Document`'s `blocks` vector is traversed to find a target `Block` node based on the user-provided selectors. The search stops at the **first match**, and a warning is issued to `stderr` if other potential matches exist.
-3. **Modify**: The user-provided content string is parsed into a temporary `Document`. Its `blocks` are then used to modify the main document's `blocks` vector according to the specified operation (`insert` or `replace`) and position. This step contains the core logic, including the "heading section" heuristic.
+3. **Modify**: The user-provided content is read from either the `--content` string, the `--content-file` path, or STDIN (if `--content-file -` is used). This content is parsed into a temporary `Document`, and its `blocks` are used to modify the main document's AST.
 4. **Render**: The modified `Document` AST is rendered back into a string using `markdown_ppp::printer::render_markdown`.
-5. **Output**: The resulting string is written to the destination, which is either the original file (in-place) or a new file.
+5. **Output**: The resulting string is written to the destination. See the "File Handling" section for detailed logic.
 
 ## 3. Command-Line Interface (CLI) Specification
 
@@ -27,9 +27,9 @@ use std::path::PathBuf;
 #[derive(Parser, Debug)]
 #[command(name = "md-splice", version, about = "Splice and modify Markdown files with AST-level precision.")]
 pub struct Cli {
-    /// The Markdown file to modify.
+    /// The Markdown file to modify. [default: reads from stdin]
     #[arg(short, long, global = true, value_name = "FILE_PATH")]
-    pub file: PathBuf,
+    pub file: Option<PathBuf>,
 
     /// Write the output to a new file instead of modifying the original.
     #[arg(short, long, global = true, value_name = "OUTPUT_PATH")]
@@ -54,7 +54,7 @@ pub struct ModificationArgs {
     #[arg(short, long, value_name = "MARKDOWN_STRING", conflicts_with = "content_file")]
     pub content: Option<String>,
 
-    /// A file containing the Markdown content to insert or replace with.
+    /// A file containing the Markdown content. Use '-' to read from stdin.
     #[arg(long, value_name = "CONTENT_PATH", conflicts_with = "content")]
     pub content_file: Option<PathBuf>,
 
@@ -139,8 +139,10 @@ The splicer modifies the AST based on the `FoundNode` returned by the locator.
 
 ## 6. File Handling
 
-* **Default (In-place)**: If `--output` is not specified, the tool will first render the modified content to an in-memory buffer. If rendering is successful, it will overwrite the original file. This is an atomic operation to prevent data loss on error.
-* **With `--output`**: The rendered content is written directly to the specified output file path. The original file is not touched.
+* **With `--output`**: The rendered content is always written to the specified output file path.
+* **Without `--output`**:
+    * If the input was from a file (`--file <PATH>`), the tool performs a safe, atomic in-place write to that file.
+    * If the input was from STDIN (no `--file` argument), the rendered content is written to STDOUT.
 
 ## 7. Error Handling
 
@@ -150,6 +152,7 @@ The tool will exit with a non-zero status code and a descriptive error message o
 * Markdown parsing error in either the input file or the content string/file.
 * Selector did not match any nodes in the document.
 * An invalid operation was attempted (e.g., `prepend-child` on a paragraph).
+* Attempting to read both the source document and splice content from STDIN.
 * Filesystem error when writing the output.
 
 ## 8. Proposed Code Structure

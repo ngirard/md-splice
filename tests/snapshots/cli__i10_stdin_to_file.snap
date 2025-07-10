@@ -1,0 +1,7 @@
+---
+source: tests/cli.rs
+expression: output_content
+---
+# Source from STDIN
+
+The output was redirected to a file.

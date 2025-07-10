@@ -11,10 +11,10 @@ Options:
           The Markdown content to insert or replace with
 
   -f, --file <FILE_PATH>
-          The Markdown file to modify
+          The Markdown file to modify. [default: reads from stdin]
 
       --content-file <CONTENT_PATH>
-          A file containing the Markdown content to insert or replace with
+          A file containing the Markdown content. Use '-' to read from stdin
 
   -o, --output <OUTPUT_PATH>
           Write the output to a new file instead of modifying the original

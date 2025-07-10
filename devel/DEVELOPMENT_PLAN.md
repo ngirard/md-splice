@@ -66,3 +66,13 @@ This document outlines the phased, test-driven development plan for `md-splice`.
 - **LI2 (End-to-End Insert)**: Use the CLI to insert a new list item before another, selected by ordinal. Create an `insta` snapshot.
 - **LI3 (End-to-End Error)**: Verify a non-zero exit code when trying to `prepend-child` into a list item with content that is not a valid block.
 - **LI4 (End-to-End Nested Insert)**: Use the CLI to insert a nested list into an existing list item using `insert --position append-child`. Create an `insta` snapshot.
+
+## Phase 5: STDIN Support
+
+**Goal**: Allow reading the source document and/or the splice content from STDIN.
+
+**Test Cases**:
+- **I7 (Source from STDIN)**: Pipe a file into `md-splice` (no `--file` arg) and verify the output on STDOUT. Create an `insta` snapshot.
+- **I8 (Content from STDIN)**: Use `--content-file -` and pipe content into it. Create an `insta` snapshot.
+- **I9 (Error on Ambiguous STDIN)**: Test that running with no `--file` and with `--content-file -` produces a non-zero exit code and a specific error message.
+- **I10 (Source from STDIN, Output to File)**: Pipe a file in, use `--output`, and verify the output file's content.

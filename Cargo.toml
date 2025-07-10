@@ -1,6 +1,6 @@
 [package]
 name = "md-splice"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 authors = ["Nicolas Girard <girard.nicolas@gmail.com>"]
 

@@ -1,0 +1,7 @@
+---
+source: tests/cli.rs
+expression: stdout
+---
+# Source from STDIN
+
+This paragraph was replaced via STDIN.

@@ -10,7 +10,7 @@ use std::path::PathBuf;
     about = "Splice and modify Markdown files with AST-level precision."
 )]
 pub struct Cli {
-    /// The Markdown file to modify.
+    /// The Markdown file to modify. [default: reads from stdin]
     #[arg(short, long, global = true, value_name = "FILE_PATH")]
     pub file: Option<PathBuf>,
 
@@ -43,7 +43,7 @@ pub struct ModificationArgs {
     )]
     pub content: Option<String>,
 
-    /// A file containing the Markdown content to insert or replace with.
+    /// A file containing the Markdown content. Use '-' to read from stdin.
     #[arg(long, value_name = "CONTENT_PATH", conflicts_with = "content")]
     pub content_file: Option<PathBuf>,
 

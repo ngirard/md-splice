@@ -351,3 +351,89 @@ fn test_li4_end_to_end_nested_insert() {
     let output_content = std::fs::read_to_string(output_file.path()).unwrap();
     insta::assert_snapshot!("li4_nested_list_insert", output_content);
 }
+
+#[test]
+fn test_i7_source_from_stdin() {
+    // I7: Pipe a file into md-splice (no --file arg) and verify the output on STDOUT.
+    let input_md = "# Source from STDIN\n\nThis is the original paragraph.\n";
+
+    let mut cmd = cmd();
+    cmd.arg("replace")
+        .arg("--select-type")
+        .arg("p")
+        .arg("--content")
+        .arg("This paragraph was replaced via STDIN.")
+        .write_stdin(input_md)
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(cmd.output().unwrap().stdout).unwrap();
+    insta::assert_snapshot!("i7_source_from_stdin", stdout);
+}
+
+#[test]
+fn test_i8_content_from_stdin() {
+    // I8: Use --content-file - and pipe content into it.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# Title\n\nThis is the target.\n")
+        .unwrap();
+    let content_md = "This content comes from STDIN.";
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("replace")
+        .arg("--select-type")
+        .arg("p")
+        .arg("--content-file")
+        .arg("-")
+        .write_stdin(content_md)
+        .assert()
+        .success();
+
+    // The operation should modify the file in-place.
+    let expected_content = "# Title\n\nThis content comes from STDIN.";
+    input_file.assert(eq(expected_content));
+}
+
+#[test]
+fn test_i9_error_on_ambiguous_stdin() {
+    // I9: Test that running with no --file and with --content-file - produces an error.
+    cmd()
+        .arg("replace")
+        .arg("--select-type")
+        .arg("p")
+        .arg("--content-file")
+        .arg("-")
+        .write_stdin("some content")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "Error: Cannot read both source document and splice content from stdin.",
+        ));
+}
+
+#[test]
+fn test_i10_source_from_stdin_output_to_file() {
+    // I10: Pipe a file in, use --output, and verify the output file's content.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let output_file = temp.child("output.md");
+    let input_md = "# Source from STDIN\n\nThis will go to a file.\n";
+
+    cmd()
+        .arg("--output")
+        .arg(output_file.path())
+        .arg("replace")
+        .arg("--select-type")
+        .arg("p")
+        .arg("--content")
+        .arg("The output was redirected to a file.")
+        .write_stdin(input_md)
+        .assert()
+        .success();
+
+    let output_content = std::fs::read_to_string(output_file.path()).unwrap();
+    insta::assert_snapshot!("i10_stdin_to_file", output_content);
+}

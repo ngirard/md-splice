@@ -20,4 +20,7 @@ pub enum SpliceError {
 
     #[error("Invalid content for list item operation: content must be parsable as list items (e.g., '- item').")]
     InvalidListItemContent,
+
+    #[error("Cannot read both source document and splice content from stdin.")]
+    AmbiguousStdinSource,
 }
