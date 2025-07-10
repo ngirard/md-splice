@@ -38,3 +38,30 @@ This document outlines the phased, test-driven development plan for `md-splice`.
 - **I5 (Error Reporting)**: Test non-zero exit code on error.
 - **I6 (Logging)**: Test log-based warning.
 
+## Phase 4: List Item Selection
+
+**Goal**: Implement the ability to select, replace, and insert individual list items.
+
+### Sub-Phase 4.1: Locator Extension (LL)
+
+**Test Cases**:
+- **LL1 (Select by Type and Ordinal)**: Select the 3rd list item in a document containing multiple lists.
+- **LL2 (Select by Content)**: Select a list item using `--select-contains`.
+- **LL3 (Select by Regex)**: Select a list item using `--select-regex`.
+- **LL4 (No Match)**: Verify `SpliceError::NodeNotFound` when a list item selector finds nothing.
+- **LL5 (Ambiguity)**: Verify the ambiguity warning is triggered when a selector matches multiple list items.
+
+### Sub-Phase 4.2: Splicer Extension (LS)
+
+**Test Cases**:
+- **LS1 (Replace Item)**: Replace a single list item with another single list item.
+- **LS2 (Insert Before/After Item)**: Insert a new list item relative to an existing one.
+- **LS3 (Insert into Item)**: Use `prepend-child`/`append-child` to add a nested list inside an existing list item.
+- **LS4 (Replace One with Many)**: Replace a single list item with multiple new list items.
+
+### Sub-Phase 4.3: Integration (LI)
+
+**Test Cases**:
+- **LI1 (End-to-End Replace)**: Use the CLI to replace a list item by its content. Create an `insta` snapshot.
+- **LI2 (End-to-End Insert)**: Use the CLI to insert a new list item before another, selected by ordinal. Create an `insta` snapshot.
+- **LI3 (End-to-End Error)**: Verify a non-zero exit code when trying to `prepend-child` into a list item with content that is not a valid block.

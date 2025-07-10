@@ -59,7 +59,7 @@ pub struct ModificationArgs {
     pub content_file: Option<PathBuf>,
 
     // --- Node Selection ---
-    /// Select node by type (e.g., 'p', 'h1', 'list', 'table').
+    /// Select node by type (e.g., 'p', 'h1', 'list', 'li', 'table').
     #[arg(long, value_name = "TYPE")]
     pub select_type: Option<String>,
 
@@ -96,50 +96,46 @@ pub enum InsertPosition {
 
 ## 4. Node Selection Logic (The "Locator")
 
-The locator is responsible for finding the target `(index, Block)` tuple in the `Document::blocks` vector.
+The locator is responsible for finding a target node in the document. It can find top-level `Block` nodes or nested `ListItem` nodes.
 
-* **Combining Selectors**: All provided `select-*` flags are **AND-ed** together to form the search criteria.
-    * `--select-type h1 --select-contains "Intro"` finds the first `h1` heading containing "Intro".
-    * `--select-type p --select-ordinal 3` finds the 3rd paragraph in the document.
+* **Node Representation**: The locator will return a `FoundNode` enum, which can represent either a block or a list item, along with the indices needed to access it.
+
+    ```rust
+    pub enum FoundNode<'a> {
+        Block {
+            index: usize,
+            block: &'a Block,
+        },
+        ListItem {
+            block_index: usize, // Index of the parent Block::List
+            item_index: usize,  // Index of the ListItem within the list
+            item: &'a ListItem,
+        },
+    }
+    ```
+
+* **Search Strategy**:
+    * If `--select-type` is a block type (e.g., `p`, `h1`, `list`), the locator searches the top-level `Document::blocks` vector.
+    * If `--select-type` is `li`, `item`, or `listitem`, the locator performs a nested search: it iterates through all `Block::List` nodes in the document and collects all of their `ListItem`s into a single flat list.
+    * The other selectors (`--select-contains`, `--select-regex`, `--select-ordinal`) are then applied to this flat list of matching nodes (either blocks or list items).
+
 * **Selector Implementation**:
-    * `--select-type`: Maps strings like "p", "h1", "h2", "list", "table", "blockquote", "code" to their corresponding `Block` enum variants. `h1`..`h6` will match `Block::Heading` with the correct level.
-    * `--select-contains`: Performs a simple substring search on the rendered plain text of a block.
-    * `--select-regex`: Compiles the regex and searches the rendered plain text of a block.
-    * `--select-ordinal`: After filtering by other criteria, this selects the Nth result from the list of matches.
-* **Matching Behavior**: The locator will iterate through the document's blocks, checking each one against the criteria. It will stop at the **first** block that satisfies all conditions for the given ordinal.
+    * `--select-type`: Now supports `li`, `item`, and `listitem` to target individual list items.
+    * `--select-contains`/`--select-regex`: When targeting a `ListItem`, the text content is the combined plain text of all blocks within that item.
+
+* **Matching Behavior**: The locator finds all nodes that satisfy the criteria and then uses `--select-ordinal` to pick the final target from that list.
 * **Warning on Ambiguity**: After a match is found and the operation is complete, the locator will continue scanning the rest of the document. If more potential matches are found, a warning will be printed to `stderr`: `Warning: Selector matched multiple nodes. Operation was applied to the first match only.`
 
 ## 5. Modification Logic (The "Splicer")
 
-The splicer modifies the `Document::blocks` vector. It receives the index of the target block and the parsed blocks of the new content.
+The splicer modifies the AST based on the `FoundNode` returned by the locator.
 
-* **For `replace`**:
-    1. Find the index `i` of the target block.
-    2. Remove the block at index `i`.
-    3. Insert the new content blocks at index `i`.
-    4. `Vec::splice(i..=i, new_blocks)` is a perfect fit.
+* **For `FoundNode::Block`**: The logic remains the same as before, operating on the `Document::blocks` vector.
 
-* **For `insert`**:
-    * **`--position before`**:
-        1. Find the index `i` of the target block.
-        2. Insert the new content blocks at index `i`.
-    * **`--position after`**:
-        1. Find the index `i` of the target block.
-        2. Insert the new content blocks at index `i + 1`.
-
-    * **`--position prepend-child` / `append-child`**: This is where the logic branches based on the target node's type.
-        * **Case 1: True Container Nodes** (e.g., `Block::BlockQuote`, `Block::ListItem`).
-            * The new content blocks are inserted directly into the target block's own `blocks: Vec<Block>` field at the beginning (`prepend-child`) or end (`append-child`).
-        * **Case 2: Semantic Container Node** (i.e., `Block::Heading`).
-            1. Find the target `Heading` at index `i` and note its level `L`.
-            2. Scan the `Document::blocks` vector starting from `i + 1`.
-            3. Find the index `j` of the next `Block::Heading` with a level `<= L`.
-            4. If no such heading is found, `j` is the end of the `blocks` vector (`blocks.len()`).
-            5. The "section" is the slice of blocks from `i + 1` to `j - 1`.
-            6. For `prepend-child`, insert the new content at index `i + 1`.
-            7. For `append-child`, insert the new content at index `j`.
-        * **Case 3: Non-Container Nodes** (e.g., `Block::Paragraph`, `Block::ThematicBreak`).
-            * The operation is invalid. The tool will exit with a clear error message: `Error: Cannot insert child content into a 'Paragraph'. Use --position 'before' or 'after' to insert as a sibling.`
+* **For `FoundNode::ListItem`**: The splicer uses the `block_index` to get a mutable reference to the parent `Block::List` and then uses `item_index` to modify its `items` vector.
+    * **`replace`**: The content from `--content` or `--content-file` must be parsable as one or more list items. The splicer will parse this content into a temporary list and use its items to replace the target item. This allows one-to-many, many-to-one, or one-to-one replacements.
+    * **`insert --position before|after`**: Inserts new list items into the parent list's `items` vector relative to the target item.
+    * **`insert --position prepend-child|append-child`**: Inserts new blocks *inside* the target `ListItem`'s own `blocks` vector, allowing for the creation of nested content (e.g., a sub-list).
 
 ## 6. File Handling
 
@@ -221,3 +217,31 @@ When `--output` is not specified, the following procedure must be used to preven
 2. If rendering is successful, use a crate like `tempfile` to create a temporary file *in the same directory* as the original file.
 3. Write the buffer's contents to the temporary file.
 4. Atomically rename/move the temporary file to replace the original file. Using `std::fs::rename` is typically atomic on POSIX systems when the source and destination are on the same filesystem. This ensures the original file is not corrupted if the write is interrupted.
+
+## Phase 4: List Item Selection
+
+**Goal**: Implement the ability to select, replace, and insert individual list items.
+
+### Sub-Phase 4.1: Locator Extension (LL)
+
+**Test Cases**:
+- **LL1 (Select by Type and Ordinal)**: Select the 3rd list item in a document containing multiple lists.
+- **LL2 (Select by Content)**: Select a list item using `--select-contains`.
+- **LL3 (Select by Regex)**: Select a list item using `--select-regex`.
+- **LL4 (No Match)**: Verify `SpliceError::NodeNotFound` when a list item selector finds nothing.
+- **LL5 (Ambiguity)**: Verify the ambiguity warning is triggered when a selector matches multiple list items.
+
+### Sub-Phase 4.2: Splicer Extension (LS)
+
+**Test Cases**:
+- **LS1 (Replace Item)**: Replace a single list item with another single list item.
+- **LS2 (Insert Before/After Item)**: Insert a new list item relative to an existing one.
+- **LS3 (Insert into Item)**: Use `prepend-child`/`append-child` to add a nested list inside an existing list item.
+- **LS4 (Replace One with Many)**: Replace a single list item with multiple new list items.
+
+### Sub-Phase 4.3: Integration (LI)
+
+**Test Cases**:
+- **LI1 (End-to-End Replace)**: Use the CLI to replace a list item by its content. Create an `insta` snapshot.
+- **LI2 (End-to-End Insert)**: Use the CLI to insert a new list item before another, selected by ordinal. Create an `insta` snapshot.
+- **LI3 (End-to-End Error)**: Verify a non-zero exit code when trying to `prepend-child` into a list item with content that is not a valid block.

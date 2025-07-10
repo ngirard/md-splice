@@ -15,4 +15,7 @@ pub enum SpliceError {
 
     #[error("Neither --content nor --content-file were provided. Please specify the content to insert.")]
     NoContent,
+
+    #[error("Invalid content for list item operation: content must be parsable as list items (e.g., '- item').")]
+    InvalidListItemContent,
 }

@@ -169,6 +169,50 @@ md-splice --file input.md --output output.md replace \
   --content-file new_table.md
 ```
 
+#### 5. Modify Individual List Items
+
+By setting `--select-type` to `li` (or `listitem`), you can apply selectors directly to items within a list.
+
+Given `todo.md`:
+```markdown
+# My Tasks
+- [x] Buy milk
+- [ ] Write the report
+- [ ] Call the client
+```
+
+To replace an item **by its content**:
+```sh
+md-splice --file todo.md replace \
+  --select-type li --select-contains "Write the report" \
+  --content "- [x] Write and **submit** the report"
+```
+
+Resulting `todo.md`:
+```markdown
+# My Tasks
+- [x] Buy milk
+- [x] Write and **submit** the report
+- [ ] Call the client
+```
+
+To insert a new item *before* the third list item **by its position**:
+```sh
+md-splice --file todo.md insert \
+  --select-type li --select-ordinal 3 \
+  --position before \
+  --content "- [ ] Prepare for meeting"
+```
+
+Resulting `todo.md`:
+```markdown
+# My Tasks
+- [x] Buy milk
+- [x] Write and **submit** the report
+- [ ] Prepare for meeting
+- [ ] Call the client
+```
+
 ## Command-Line Reference
 
 ### Global Options
@@ -215,24 +259,25 @@ Options:
 
 All provided `--select-*` flags are combined with **AND** logic. For example, `--select-type p --select-contains "foo"` will only match paragraphs that contain the text "foo".
 
-* `--select-type <TYPE>`: Matches a block by its type. The following type strings are supported, based on the `markdown-ppp` parser's AST:
+* `--select-type <TYPE>`: Matches a node by its type. This can be a top-level block or a nested element like a list item. The following types are supported:
 
-    | Type String(s)                     | Markdown Construct                                 |
-    | :--------------------------------- | :------------------------------------------------- |
-    | `p`, `paragraph`                   | A standard paragraph of text.                      |
-    | `heading`                          | Any heading, regardless of level.                  |
-    | `h1`, `h2`, `h3`, `h4`, `h5`, `h6` | A heading of a specific level.                     |
-    | `list`                             | An ordered (`1.`) or unordered (`-`, `*`) list.    |
-    | `table`                            | A GFM-style table.                                 |
-    | `blockquote`                       | A block quote, starting with `>`.                  |
-    | `code`, `codeblock`                | A fenced (```) or indented code block.             |
-    | `html`, `htmlblock`                | A block of raw HTML.                               |
-    | `thematicbreak`                    | A horizontal rule (`---`, `***`, etc.).            |
-    | `definition`                       | A link reference definition, e.g., `[label]: url`. |
-    | `footnotedefinition`               | A footnote definition, e.g., `[^label]: text`.     |
+	| Type String(s)           | Markdown Construct                    | Scope  |
+	| :----------------------- | :------------------------------------ | :----- |
+	| `p`, `paragraph`         | A standard paragraph of text.         | Block  |
+	| `heading`                | Any heading, regardless of level.     | Block  |
+	| `h1` - `h6`              | A heading of a specific level.        | Block  |
+	| `list`                   | An entire ordered or unordered list.  | Block  |
+	| `li`, `item`, `listitem` | An individual item within a list.     | Nested |
+	| `table`                  | A GFM-style table.                    | Block  |
+	| `blockquote`             | A block quote (`> ...`).              | Block  |
+	| `code`, `codeblock`      | A fenced or indented code block.      | Block  |
+	| `html`, `htmlblock`      | A block of raw HTML.                  | Block  |
+	| `thematicbreak`          | A horizontal rule (`---`, `***`, etc.).            | Block  |
+	| `definition`             | A link reference definition, e.g., `[label]: url`.  | Block  |
+	| `footnotedefinition`     | A footnote definition, e.g., `[^label]: text`.  | Block  |
 
-* `--select-contains <TEXT>`: Matches if the block's rendered text content includes the given string.
-* `--select-regex <REGEX>`: Matches if the block's rendered text content matches the given regular expression.
+* `--select-contains <TEXT>`: Matches if the node's text content includes the given string.
+* `--select-regex <REGEX>`: Matches if the node's text content matches the given regular expression.
 * `--select-ordinal <N>`: After all other selectors have produced a list of matching nodes, this selects the Nth node from that list (1-indexed).
 
 ### Insert Position Options

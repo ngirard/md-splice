@@ -31,7 +31,13 @@ pub enum Command {
 pub struct ModificationArgs {
     // --- Content to be added ---
     /// The Markdown content to insert or replace with.
-    #[arg(short, long, value_name = "MARKDOWN_STRING", conflicts_with = "content_file")]
+    #[arg(
+        short,
+        long,
+        value_name = "MARKDOWN_STRING",
+        conflicts_with = "content_file",
+        allow_hyphen_values = true
+    )]
     pub content: Option<String>,
 
     /// A file containing the Markdown content to insert or replace with.

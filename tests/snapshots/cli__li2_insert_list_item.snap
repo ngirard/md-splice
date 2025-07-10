@@ -1,0 +1,10 @@
+---
+source: tests/cli.rs
+expression: output_content
+---
+# A List
+
+ - Item One
+ - Item Two
+ - Item 2.5 (Inserted)
+ - Item Three

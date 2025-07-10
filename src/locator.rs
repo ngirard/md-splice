@@ -2,15 +2,22 @@
 
 use crate::error::SpliceError;
 use markdown_ppp::ast::{
-    Block, FootnoteDefinition, HeadingKind, Inline, List, SetextHeading, Table,
+    Block, FootnoteDefinition, HeadingKind, Inline, List, ListItem, SetextHeading, Table,
 };
 use regex::Regex;
 
 /// Represents the location of a found block.
 #[derive(Debug, PartialEq)]
-pub struct FoundBlock<'a> {
-    pub index: usize,
-    pub block: &'a Block,
+pub enum FoundNode<'a> {
+    Block {
+        index: usize,
+        block: &'a Block,
+    },
+    ListItem {
+        block_index: usize, // Index of the parent Block::List
+        item_index: usize,  // Index of the ListItem within the list
+        item: &'a ListItem,
+    },
 }
 
 /// A set of criteria for selecting a node.
@@ -22,7 +29,23 @@ pub struct Selector {
     pub select_ordinal: usize,
 }
 
-/// Finds the first block in the document that matches all the given selectors.
+/// Checks if a type string refers to a list item.
+fn is_list_item_type(type_str: &str) -> bool {
+    matches!(type_str.to_lowercase().as_str(), "li" | "item" | "listitem")
+}
+
+/// Recursively extracts the plain text content from a `ListItem` node.
+pub(crate) fn list_item_to_text(item: &ListItem) -> String {
+    item.blocks
+        .iter()
+        .map(block_to_text)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Finds the first node in the document that matches all the given selectors.
+///
+/// The function can find top-level `Block` nodes or nested `ListItem` nodes.
 ///
 /// # Arguments
 ///
@@ -31,15 +54,80 @@ pub struct Selector {
 ///
 /// # Returns
 ///
-/// A `Result` containing a tuple of `(FoundBlock, bool)` on success, where the
+/// A `Result` containing a tuple of `(FoundNode, bool)` on success, where the
 /// boolean is `true` if more than one node matched the criteria (indicating ambiguity).
 /// Returns a `SpliceError` if no node is found.
 pub fn locate<'a>(
     blocks: &'a [Block],
     selector: &Selector,
-) -> Result<(FoundBlock<'a>, bool), SpliceError> {
+) -> Result<(FoundNode<'a>, bool), SpliceError> {
     let ordinal_index = selector.select_ordinal.saturating_sub(1);
 
+    // --- Search Strategy ---
+    // If the selector type is for a list item, we perform a nested search.
+    // Otherwise, we perform the standard top-level block search.
+    if let Some(type_str) = &selector.select_type {
+        if is_list_item_type(type_str) {
+            // --- List Item Search Logic ---
+            let all_items: Vec<_> = blocks
+                .iter()
+                .enumerate()
+                .filter_map(|(block_index, block)| {
+                    if let Block::List(list) = block {
+                        // For each list, create an iterator of its items, associating
+                        // them with their parent block's index.
+                        Some(list.items.iter().enumerate().map(move |(item_index, item)| {
+                            (block_index, item_index, item)
+                        }))
+                    } else {
+                        None
+                    }
+                })
+                .flatten() // Flatten the iterators from all lists into one.
+                .collect();
+
+            let matches: Vec<_> = all_items
+                .into_iter()
+                .filter(|(_block_idx, _item_idx, item)| {
+                    // Apply text-based filters if they exist.
+                    if selector.select_contains.is_some() || selector.select_regex.is_some() {
+                        let text_content = list_item_to_text(item);
+
+                        if let Some(contains_str) = &selector.select_contains {
+                            if !text_content.contains(contains_str) {
+                                return false;
+                            }
+                        }
+
+                        if let Some(re) = &selector.select_regex {
+                            if !re.is_match(&text_content) {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                })
+                .collect();
+
+            let is_ambiguous = matches.len() > 1;
+
+            return matches
+                .get(ordinal_index)
+                .map(|(block_index, item_index, item)| {
+                    (
+                        FoundNode::ListItem {
+                            block_index: *block_index,
+                            item_index: *item_index,
+                            item,
+                        },
+                        is_ambiguous,
+                    )
+                })
+                .ok_or(SpliceError::NodeNotFound);
+        }
+    }
+
+    // --- Block Search Logic (default) ---
     let matches: Vec<_> = blocks
         .iter()
         .enumerate()
@@ -82,7 +170,7 @@ pub fn locate<'a>(
         .get(ordinal_index)
         .map(|(index, block)| {
             (
-                FoundBlock {
+                FoundNode::Block {
                     index: *index,
                     block,
                 },
@@ -152,7 +240,7 @@ fn inlines_to_text(inlines: &[Inline]) -> String {
 }
 
 /// Recursively extracts the plain text content from a `Block` node.
-fn block_to_text(block: &Block) -> String {
+pub(crate) fn block_to_text(block: &Block) -> String {
     match block {
         Block::Paragraph(inlines) => inlines_to_text(inlines),
         Block::Heading(heading) => inlines_to_text(&heading.content),
@@ -233,14 +321,13 @@ fn main() {
         let (found, is_ambiguous) = result.unwrap();
 
         // The first paragraph is the second block (index 1) after the H1.
-        assert_eq!(
-            found,
-            FoundBlock {
-                index: 1,
-                block: &doc.blocks[1]
-            }
+        assert!(
+            matches!(found, FoundNode::Block { index, .. } if index == 1),
+            "Expected to find block at index 1"
         );
-        assert!(matches!(found.block, Block::Paragraph(_)));
+        if let FoundNode::Block { block, .. } = found {
+            assert!(matches!(block, Block::Paragraph(_)));
+        }
         assert!(is_ambiguous, "should detect ambiguity as there are two paragraphs");
     }
 
@@ -261,14 +348,13 @@ fn main() {
 
         // The markdown has: H1, P, List, P, CodeBlock.
         // So the second paragraph is at index 3.
-        assert_eq!(
-            found,
-            FoundBlock {
-                index: 3,
-                block: &doc.blocks[3]
-            }
+        assert!(
+            matches!(found, FoundNode::Block { index, .. } if index == 3),
+            "Expected to find block at index 3"
         );
-        assert!(matches!(found.block, Block::Paragraph(_)));
+        if let FoundNode::Block { block, .. } = found {
+            assert!(matches!(block, Block::Paragraph(_)));
+        }
         assert!(is_ambiguous, "should detect ambiguity as there are two paragraphs");
     }
 
@@ -288,14 +374,13 @@ fn main() {
         let (found, is_ambiguous) = result.unwrap();
 
         // The first block (index 0) is the H1 with content "A Heading".
-        assert_eq!(
-            found,
-            FoundBlock {
-                index: 0,
-                block: &doc.blocks[0]
-            }
+        assert!(
+            matches!(found, FoundNode::Block { index, .. } if index == 0),
+            "Expected to find block at index 0"
         );
-        assert!(matches!(found.block, Block::Heading(_)));
+        if let FoundNode::Block { block, .. } = found {
+            assert!(matches!(block, Block::Heading(_)));
+        }
         assert!(!is_ambiguous, "should not detect ambiguity as there is only one heading");
     }
 
@@ -315,14 +400,13 @@ fn main() {
         let (found, is_ambiguous) = result.unwrap();
 
         // The code block is the last block (index 4).
-        assert_eq!(
-            found,
-            FoundBlock {
-                index: 4,
-                block: &doc.blocks[4]
-            }
+        assert!(
+            matches!(found, FoundNode::Block { index, .. } if index == 4),
+            "Expected to find block at index 4"
         );
-        assert!(matches!(found.block, Block::CodeBlock(_)));
+        if let FoundNode::Block { block, .. } = found {
+            assert!(matches!(block, Block::CodeBlock(_)));
+        }
         assert!(!is_ambiguous, "should not detect ambiguity as there is only one code block");
     }
 
@@ -353,15 +437,12 @@ A final paragraph, also with a Note.
         assert!(result.is_ok(), "locate should find a matching block");
         let (found, is_ambiguous) = result.unwrap();
 
-        // Blocks are: H1, P, P, P, P.
+        // Blocks are: H1, P, P, List, P.
         // Paragraphs with "Note" are at indices 2 and 4.
         // The second one is at index 4.
-        assert_eq!(
-            found,
-            FoundBlock {
-                index: 4,
-                block: &doc.blocks[4]
-            }
+        assert!(
+            matches!(found, FoundNode::Block { index, .. } if index == 4),
+            "Expected to find block at index 4"
         );
         assert!(is_ambiguous, "should have detected ambiguity");
     }
@@ -399,7 +480,7 @@ A final paragraph, also with a Note.
         assert!(result_ambiguous.is_ok());
         let (found, is_ambiguous) = result_ambiguous.unwrap();
         // First match is at index 2
-        assert_eq!(found.index, 2);
+        assert!(matches!(found, FoundNode::Block { index, .. } if index == 2));
         assert!(
             is_ambiguous,
             "Expected ambiguity to be true when multiple nodes match criteria"
@@ -415,10 +496,136 @@ A final paragraph, also with a Note.
         let result_unambiguous = locate(&doc.blocks, &selector_unambiguous);
         assert!(result_unambiguous.is_ok());
         let (found, is_ambiguous) = result_unambiguous.unwrap();
-        assert_eq!(found.index, 0);
+        assert!(matches!(found, FoundNode::Block { index, .. } if index == 0));
         assert!(
             !is_ambiguous,
             "Expected ambiguity to be false when only one node matches"
         );
+    }
+
+    // --- Tests for Phase 4: List Item Selection ---
+
+    const LIST_ITEM_MARKDOWN: &str = r#"# List Document
+
+- First item
+- Second item
+
+A paragraph.
+
+1. Third item
+2. Fourth item
+"#;
+
+    #[test]
+    fn test_ll1_select_list_item_by_type_and_ordinal() {
+        // LL1: Select the 3rd list item in a document containing multiple lists.
+        let doc = parse_markdown(MarkdownParserState::default(), LIST_ITEM_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("li".to_string()),
+            select_ordinal: 3,
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(result.is_ok(), "locate should find a matching list item");
+        let (found, is_ambiguous) = result.unwrap();
+
+        // The flat list of items is [First, Second, Third, Fourth].
+        // The 3rd item is "Third item".
+        // It's in the second list (block index 3), and is the first item (item index 0).
+        if let FoundNode::ListItem { block_index, item_index, item } = found {
+            assert_eq!(block_index, 3);
+            assert_eq!(item_index, 0);
+            let text = list_item_to_text(item);
+            assert!(text.starts_with("Third item"));
+            assert!(is_ambiguous, "Should detect 4 total matching 'li' nodes");
+        } else {
+            panic!("Expected to find a ListItem, but found {:?}", found);
+        }
+    }
+
+    #[test]
+    fn test_ll2_select_list_item_by_content() {
+        // LL2: Select a list item using --select-contains.
+        let doc = parse_markdown(MarkdownParserState::default(), LIST_ITEM_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("listitem".to_string()),
+            select_contains: Some("Fourth".to_string()),
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(result.is_ok());
+        let (found, is_ambiguous) = result.unwrap();
+
+        // The item "Fourth item" is the only match.
+        if let FoundNode::ListItem { block_index, item_index, item } = found {
+            assert_eq!(block_index, 3);
+            assert_eq!(item_index, 1);
+            let text = list_item_to_text(item);
+            assert!(text.starts_with("Fourth item"));
+            assert!(!is_ambiguous, "Should not detect ambiguity for a unique match");
+        } else {
+            panic!("Expected to find a ListItem, but found {:?}", found);
+        }
+    }
+
+    #[test]
+    fn test_ll3_select_list_item_by_regex() {
+        // LL3: Select a list item using --select-regex.
+        let doc = parse_markdown(MarkdownParserState::default(), LIST_ITEM_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("item".to_string()),
+            select_regex: Some(Regex::new(r"(?i)second").unwrap()), // case-insensitive
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(result.is_ok());
+        let (found, is_ambiguous) = result.unwrap();
+
+        // The item "Second item" is the only match.
+        if let FoundNode::ListItem { block_index, item_index, item } = found {
+            assert_eq!(block_index, 1);
+            assert_eq!(item_index, 1);
+            let text = list_item_to_text(item);
+            assert!(text.starts_with("Second item"));
+            assert!(!is_ambiguous, "Should not detect ambiguity for a unique match");
+        } else {
+            panic!("Expected to find a ListItem, but found {:?}", found);
+        }
+    }
+
+    #[test]
+    fn test_ll4_no_match_list_item() {
+        // LL4: Verify SpliceError::NodeNotFound when a list item selector finds nothing.
+        let doc = parse_markdown(MarkdownParserState::default(), LIST_ITEM_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("li".to_string()),
+            select_contains: Some("Non-existent".to_string()),
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), SpliceError::NodeNotFound));
+    }
+
+    #[test]
+    fn test_ll5_ambiguity_list_item() {
+        // LL5: Verify the ambiguity warning is triggered when a selector matches multiple list items.
+        let doc = parse_markdown(MarkdownParserState::default(), LIST_ITEM_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("li".to_string()),
+            select_contains: Some("item".to_string()),
+            select_ordinal: 1,
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(result.is_ok());
+        let (_found, is_ambiguous) = result.unwrap();
+
+        assert!(is_ambiguous, "Expected ambiguity to be true when multiple list items match");
     }
 }

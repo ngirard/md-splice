@@ -7,8 +7,8 @@ pub mod splicer;
 
 use crate::cli::{Cli, Command};
 use crate::error::SpliceError;
-use crate::locator::{locate, Selector};
-use crate::splicer::{insert, replace};
+use crate::locator::{locate, FoundNode, Selector};
+use crate::splicer::{insert, insert_list_item, replace, replace_list_item};
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
@@ -58,7 +58,7 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     // 7. Locate target node
-    let (found_block, is_ambiguous) = locate(&doc.blocks, &selector)?;
+    let (found_node, is_ambiguous) = locate(&doc.blocks, &selector)?;
 
     // 8. Handle ambiguity warning (for I6)
     if is_ambiguous {
@@ -81,16 +81,36 @@ pub fn run() -> anyhow::Result<()> {
     let new_blocks = new_content_doc.blocks;
 
     // 11. Splice/modify AST
-    let target_index = found_block.index;
-    if is_replace {
-        replace(&mut doc.blocks, target_index, new_blocks);
-    } else {
-        insert(
-            &mut doc.blocks,
-            target_index,
-            new_blocks,
-            mod_args.position.clone(),
-        )?;
+    match found_node {
+        FoundNode::Block { index, .. } => {
+            if is_replace {
+                replace(&mut doc.blocks, index, new_blocks);
+            } else {
+                insert(
+                    &mut doc.blocks,
+                    index,
+                    new_blocks,
+                    mod_args.position.clone(),
+                )?;
+            }
+        }
+        FoundNode::ListItem {
+            block_index,
+            item_index,
+            ..
+        } => {
+            if is_replace {
+                replace_list_item(&mut doc.blocks, block_index, item_index, new_blocks)?;
+            } else {
+                insert_list_item(
+                    &mut doc.blocks,
+                    block_index,
+                    item_index,
+                    new_blocks,
+                    mod_args.position.clone(),
+                )?;
+            }
+        }
     }
 
     // 12. Render AST to string

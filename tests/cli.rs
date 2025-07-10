@@ -229,3 +229,90 @@ fn test_i6_logging_ambiguity_warning() {
             "Warning: Selector matched multiple nodes. Operation was applied to the first match only.",
         ));
 }
+
+#[test]
+fn test_li1_end_to_end_replace_list_item() {
+    // LI1: Use the CLI to replace a list item by its content.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# A List\n\n- Item One\n- Item Two\n- Item Three\n")
+        .unwrap();
+    let output_file = temp.child("output.md");
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("--output")
+        .arg(output_file.path())
+        .arg("replace")
+        .arg("--select-type")
+        .arg("li")
+        .arg("--select-contains")
+        .arg("Item Two")
+        .arg("--content")
+        .arg("- Item 2 (Replaced)")
+        .assert()
+        .success();
+
+    let output_content = std::fs::read_to_string(output_file.path()).unwrap();
+    insta::assert_snapshot!("li1_replace_list_item", output_content);
+}
+
+#[test]
+fn test_li2_end_to_end_insert_list_item() {
+    // LI2: Use the CLI to insert a new list item before another, selected by ordinal.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# A List\n\n- Item One\n- Item Two\n- Item Three\n")
+        .unwrap();
+    let output_file = temp.child("output.md");
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("--output")
+        .arg(output_file.path())
+        .arg("insert")
+        .arg("--select-type")
+        .arg("li")
+        .arg("--select-ordinal")
+        .arg("3") // Target "Item Three"
+        .arg("--position")
+        .arg("before")
+        .arg("--content")
+        .arg("- Item 2.5 (Inserted)")
+        .assert()
+        .success();
+
+    let output_content = std::fs::read_to_string(output_file.path()).unwrap();
+    insta::assert_snapshot!("li2_insert_list_item", output_content);
+}
+
+#[test]
+fn test_li3_end_to_end_error_invalid_list_item_content() {
+    // LI3: Verify a non-zero exit code when trying to replace a list item
+    // with content that is not a valid list item itself.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# A List\n\n- Item One\n- Item Two\n")
+        .unwrap();
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("replace")
+        .arg("--select-type")
+        .arg("li")
+        .arg("--select-ordinal")
+        .arg("1")
+        .arg("--content")
+        .arg("This is just a paragraph, not a list item.")
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains(
+            "Error: Invalid content for list item operation",
+        ));
+}
