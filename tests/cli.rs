@@ -320,3 +320,34 @@ fn test_li3_end_to_end_error_invalid_list_item_content() {
             "Error: Invalid content for list item operation",
         ));
 }
+
+#[test]
+fn test_li4_end_to_end_nested_insert() {
+    // LI4: Use the CLI to insert a nested list into an existing list item.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# My Tasks\n- [x] Buy milk\n- [ ] Write the report\n- [ ] Call the client\n")
+        .unwrap();
+    let output_file = temp.child("output.md");
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("--output")
+        .arg(output_file.path())
+        .arg("insert")
+        .arg("--select-type")
+        .arg("li")
+        .arg("--select-contains")
+        .arg("Write the report")
+        .arg("--position")
+        .arg("append-child")
+        .arg("--content")
+        .arg("  - [ ] Write the first section") // Indentation is key here
+        .assert()
+        .success();
+
+    let output_content = std::fs::read_to_string(output_file.path()).unwrap();
+    insta::assert_snapshot!("li4_nested_list_insert", output_content);
+}

@@ -1,0 +1,11 @@
+---
+source: tests/cli.rs
+expression: output_content
+---
+# My Tasks
+
+ - [X] Buy milk
+ - [ ] Write the report
+   
+    - [ ] Write the first section
+ - [ ] Call the client

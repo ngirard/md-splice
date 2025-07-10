@@ -23,7 +23,7 @@ cargo install md-splice
 Alternatively, install the latest version directly from the repository:
 
 ```sh
-cargo install --git https://github.com/user/md-splice.git # Replace with actual URL
+cargo install --git https://github.com/ngirard/md-splice.git
 ```
 
 ## Usage
@@ -210,6 +210,24 @@ Resulting `todo.md`:
 - [x] Buy milk
 - [x] Write and **submit** the report
 - [ ] Prepare for meeting
+- [ ] Call the client
+```
+
+To add a **nested list** to an item, use `--position append-child`:
+
+```sh
+md-splice --file todo.md insert \
+  --select-type li --select-contains "Write the report" \
+  --position append-child \
+  --content "  - [ ] Write the first section"
+```
+
+Resulting `todo.md`:
+```markdown
+# My Tasks
+- [x] Buy milk
+- [ ] Write the report
+  - [ ] Write the first section
 - [ ] Call the client
 ```
 

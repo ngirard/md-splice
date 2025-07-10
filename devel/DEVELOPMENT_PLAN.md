@@ -65,3 +65,4 @@ This document outlines the phased, test-driven development plan for `md-splice`.
 - **LI1 (End-to-End Replace)**: Use the CLI to replace a list item by its content. Create an `insta` snapshot.
 - **LI2 (End-to-End Insert)**: Use the CLI to insert a new list item before another, selected by ordinal. Create an `insta` snapshot.
 - **LI3 (End-to-End Error)**: Verify a non-zero exit code when trying to `prepend-child` into a list item with content that is not a valid block.
+- **LI4 (End-to-End Nested Insert)**: Use the CLI to insert a nested list into an existing list item using `insert --position append-child`. Create an `insta` snapshot.
