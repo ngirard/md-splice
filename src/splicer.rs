@@ -884,8 +884,12 @@ Final content.
         };
 
         // --- Action ---
-        let result =
-            replace_list_item(&mut doc.blocks, block_index, item_index, new_content_doc.blocks);
+        let result = replace_list_item(
+            &mut doc.blocks,
+            block_index,
+            item_index,
+            new_content_doc.blocks,
+        );
 
         // --- Verification ---
         assert!(result.is_err());
@@ -897,5 +901,4 @@ Final content.
             splice_error
         );
     }
-
 }

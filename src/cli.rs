@@ -4,7 +4,11 @@ use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "md-splice", version, about = "Splice and modify Markdown files with AST-level precision.")]
+#[command(
+    name = "md-splice",
+    version,
+    about = "Splice and modify Markdown files with AST-level precision."
+)]
 pub struct Cli {
     /// The Markdown file to modify.
     #[arg(short, long, global = true, value_name = "FILE_PATH")]
@@ -17,7 +21,6 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Command,
 }
-
 
 #[derive(Subcommand, Debug)]
 pub enum Command {

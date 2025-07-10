@@ -20,7 +20,7 @@ use std::fs;
 pub fn run() -> anyhow::Result<()> {
     // Initialize the logger. This will be configured by the RUST_LOG environment variable.
     env_logger::init();
-    
+
     // 1. Parse CLI args
     let cli = Cli::parse();
     // Note: Logger initialization will be added in a later step (I6).
@@ -118,9 +118,10 @@ pub fn run() -> anyhow::Result<()> {
 
     // 13. Write to output (handles I2, I3 will handle the `else` case)
     if let Some(output_path) = &cli.output {
-        fs::write(output_path, output_content)
-            .with_context(|| format!("Failed to write to output file: {}", output_path.display()))?;
-        } else {
+        fs::write(output_path, output_content).with_context(|| {
+            format!("Failed to write to output file: {}", output_path.display())
+        })?;
+    } else {
         // In-place modification.
         // 1. Create a named temporary file in the same directory as the original file.
         // This is crucial for ensuring an atomic rename operation later.

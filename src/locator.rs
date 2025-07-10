@@ -76,9 +76,12 @@ pub fn locate<'a>(
                     if let Block::List(list) = block {
                         // For each list, create an iterator of its items, associating
                         // them with their parent block's index.
-                        Some(list.items.iter().enumerate().map(move |(item_index, item)| {
-                            (block_index, item_index, item)
-                        }))
+                        Some(
+                            list.items
+                                .iter()
+                                .enumerate()
+                                .map(move |(item_index, item)| (block_index, item_index, item)),
+                        )
                     } else {
                         None
                     }
@@ -277,10 +280,9 @@ pub(crate) fn block_to_text(block: &Block) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         // Per spec, these blocks have no user-facing text content
-        Block::ThematicBreak
-        | Block::HtmlBlock(_)
-        | Block::Definition(_)
-        | Block::Empty => String::new(),
+        Block::ThematicBreak | Block::HtmlBlock(_) | Block::Definition(_) | Block::Empty => {
+            String::new()
+        }
     }
 }
 
@@ -328,7 +330,10 @@ fn main() {
         if let FoundNode::Block { block, .. } = found {
             assert!(matches!(block, Block::Paragraph(_)));
         }
-        assert!(is_ambiguous, "should detect ambiguity as there are two paragraphs");
+        assert!(
+            is_ambiguous,
+            "should detect ambiguity as there are two paragraphs"
+        );
     }
 
     #[test]
@@ -355,7 +360,10 @@ fn main() {
         if let FoundNode::Block { block, .. } = found {
             assert!(matches!(block, Block::Paragraph(_)));
         }
-        assert!(is_ambiguous, "should detect ambiguity as there are two paragraphs");
+        assert!(
+            is_ambiguous,
+            "should detect ambiguity as there are two paragraphs"
+        );
     }
 
     #[test]
@@ -381,7 +389,10 @@ fn main() {
         if let FoundNode::Block { block, .. } = found {
             assert!(matches!(block, Block::Heading(_)));
         }
-        assert!(!is_ambiguous, "should not detect ambiguity as there is only one heading");
+        assert!(
+            !is_ambiguous,
+            "should not detect ambiguity as there is only one heading"
+        );
     }
 
     #[test]
@@ -407,7 +418,10 @@ fn main() {
         if let FoundNode::Block { block, .. } = found {
             assert!(matches!(block, Block::CodeBlock(_)));
         }
-        assert!(!is_ambiguous, "should not detect ambiguity as there is only one code block");
+        assert!(
+            !is_ambiguous,
+            "should not detect ambiguity as there is only one code block"
+        );
     }
 
     const AMBIGUOUS_MARKDOWN: &str = r#"# Title
@@ -533,7 +547,12 @@ A paragraph.
         // The flat list of items is [First, Second, Third, Fourth].
         // The 3rd item is "Third item".
         // It's in the second list (block index 3), and is the first item (item index 0).
-        if let FoundNode::ListItem { block_index, item_index, item } = found {
+        if let FoundNode::ListItem {
+            block_index,
+            item_index,
+            item,
+        } = found
+        {
             assert_eq!(block_index, 3);
             assert_eq!(item_index, 0);
             let text = list_item_to_text(item);
@@ -559,12 +578,20 @@ A paragraph.
         let (found, is_ambiguous) = result.unwrap();
 
         // The item "Fourth item" is the only match.
-        if let FoundNode::ListItem { block_index, item_index, item } = found {
+        if let FoundNode::ListItem {
+            block_index,
+            item_index,
+            item,
+        } = found
+        {
             assert_eq!(block_index, 3);
             assert_eq!(item_index, 1);
             let text = list_item_to_text(item);
             assert!(text.starts_with("Fourth item"));
-            assert!(!is_ambiguous, "Should not detect ambiguity for a unique match");
+            assert!(
+                !is_ambiguous,
+                "Should not detect ambiguity for a unique match"
+            );
         } else {
             panic!("Expected to find a ListItem, but found {:?}", found);
         }
@@ -585,12 +612,20 @@ A paragraph.
         let (found, is_ambiguous) = result.unwrap();
 
         // The item "Second item" is the only match.
-        if let FoundNode::ListItem { block_index, item_index, item } = found {
+        if let FoundNode::ListItem {
+            block_index,
+            item_index,
+            item,
+        } = found
+        {
             assert_eq!(block_index, 1);
             assert_eq!(item_index, 1);
             let text = list_item_to_text(item);
             assert!(text.starts_with("Second item"));
-            assert!(!is_ambiguous, "Should not detect ambiguity for a unique match");
+            assert!(
+                !is_ambiguous,
+                "Should not detect ambiguity for a unique match"
+            );
         } else {
             panic!("Expected to find a ListItem, but found {:?}", found);
         }
@@ -626,6 +661,9 @@ A paragraph.
         assert!(result.is_ok());
         let (_found, is_ambiguous) = result.unwrap();
 
-        assert!(is_ambiguous, "Expected ambiguity to be true when multiple list items match");
+        assert!(
+            is_ambiguous,
+            "Expected ambiguity to be true when multiple list items match"
+        );
     }
 }

@@ -1,7 +1,7 @@
 use assert_cmd::Command;
 use assert_fs::prelude::*;
-use predicates::ord::eq;
 use insta::assert_snapshot;
+use predicates::ord::eq;
 use regex::Regex;
 
 fn cmd() -> Command {
@@ -185,7 +185,9 @@ fn test_i5_error_reporting_node_not_found() {
     // Setup: Create a temporary directory and an input file.
     let temp = assert_fs::TempDir::new().unwrap();
     let input_file = temp.child("input.md");
-    input_file.write_str("# A Simple File\n\nJust one paragraph.\n").unwrap();
+    input_file
+        .write_str("# A Simple File\n\nJust one paragraph.\n")
+        .unwrap();
 
     // Run the command with a selector that is guaranteed to fail.
     cmd()
@@ -209,7 +211,9 @@ fn test_i6_logging_ambiguity_warning() {
     let temp = assert_fs::TempDir::new().unwrap();
     let input_file = temp.child("ambiguous.md");
     input_file
-        .write_str("# Ambiguous Selectors\n\nThis is the first target.\n\nThis is the second target.\n")
+        .write_str(
+            "# Ambiguous Selectors\n\nThis is the first target.\n\nThis is the second target.\n",
+        )
         .unwrap();
 
     // Run the command. It should succeed but print a warning to stderr.
