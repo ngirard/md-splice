@@ -22,5 +22,6 @@ tests/snapshots
 #/src/lib.rs
 #/src/error.rs
 
-/tests
+tests
 /devel
+md-splice/src
