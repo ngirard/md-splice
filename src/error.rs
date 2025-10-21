@@ -26,4 +26,7 @@ pub enum SpliceError {
 
     #[error("The --section flag can only be used when deleting a heading (h1-h6).")]
     InvalidSectionDelete,
+
+    #[error("The --section flag can only be used when targeting a heading (h1-h6).")]
+    SectionRequiresHeading,
 }

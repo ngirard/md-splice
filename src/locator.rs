@@ -2,7 +2,7 @@
 
 use crate::error::SpliceError;
 use markdown_ppp::ast::{
-    Block, FootnoteDefinition, HeadingKind, Inline, List, ListItem, SetextHeading, Table,
+    Block, FootnoteDefinition, HeadingKind, Inline, List, ListItem, SetextHeading, Table, TaskState,
 };
 use regex::Regex;
 
@@ -36,11 +36,30 @@ fn is_list_item_type(type_str: &str) -> bool {
 
 /// Recursively extracts the plain text content from a `ListItem` node.
 pub(crate) fn list_item_to_text(item: &ListItem) -> String {
-    item.blocks
+    let body = item
+        .blocks
         .iter()
         .map(block_to_text)
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+
+    match item.task {
+        Some(TaskState::Incomplete) => {
+            if body.is_empty() {
+                "[ ]".to_string()
+            } else {
+                format!("[ ] {}", body)
+            }
+        }
+        Some(TaskState::Complete) => {
+            if body.is_empty() {
+                "[x]".to_string()
+            } else {
+                format!("[x] {}", body)
+            }
+        }
+        None => body,
+    }
 }
 
 /// Finds the first node in the document that matches all the given selectors.
@@ -181,6 +200,96 @@ pub fn locate<'a>(
             )
         })
         .ok_or(SpliceError::NodeNotFound)
+}
+
+/// Finds all nodes matching the selector criteria.
+pub fn locate_all<'a>(
+    blocks: &'a [Block],
+    selector: &Selector,
+) -> Result<Vec<FoundNode<'a>>, SpliceError> {
+    if let Some(type_str) = &selector.select_type {
+        if is_list_item_type(type_str) {
+            let all_items: Vec<_> = blocks
+                .iter()
+                .enumerate()
+                .filter_map(|(block_index, block)| {
+                    if let Block::List(list) = block {
+                        Some(
+                            list.items
+                                .iter()
+                                .enumerate()
+                                .map(move |(item_index, item)| (block_index, item_index, item)),
+                        )
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect();
+
+            let matches = all_items
+                .into_iter()
+                .filter(|(_block_idx, _item_idx, item)| {
+                    if selector.select_contains.is_some() || selector.select_regex.is_some() {
+                        let text_content = list_item_to_text(item);
+
+                        if let Some(contains_str) = &selector.select_contains {
+                            if !text_content.contains(contains_str) {
+                                return false;
+                            }
+                        }
+
+                        if let Some(re) = &selector.select_regex {
+                            if !re.is_match(&text_content) {
+                                return false;
+                            }
+                        }
+                    }
+                    true
+                })
+                .map(|(block_index, item_index, item)| FoundNode::ListItem {
+                    block_index,
+                    item_index,
+                    item,
+                })
+                .collect();
+
+            return Ok(matches);
+        }
+    }
+
+    let matches = blocks
+        .iter()
+        .enumerate()
+        .filter(|(_i, block)| {
+            if let Some(type_str) = &selector.select_type {
+                if !block_type_matches(block, type_str) {
+                    return false;
+                }
+            }
+
+            if selector.select_contains.is_some() || selector.select_regex.is_some() {
+                let text_content = block_to_text(block);
+
+                if let Some(contains_str) = &selector.select_contains {
+                    if !text_content.contains(contains_str) {
+                        return false;
+                    }
+                }
+
+                if let Some(re) = &selector.select_regex {
+                    if !re.is_match(&text_content) {
+                        return false;
+                    }
+                }
+            }
+
+            true
+        })
+        .map(|(index, block)| FoundNode::Block { index, block })
+        .collect();
+
+    Ok(matches)
 }
 
 /// Checks if a block matches the string representation of its type.
