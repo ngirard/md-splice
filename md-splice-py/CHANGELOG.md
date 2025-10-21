@@ -6,6 +6,8 @@ and the project adheres to semantic versioning in lockstep with the Rust core.
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-10-21
+
 ### Added
 - Comprehensive bindings for the Rust `MarkdownDocument`, including selectors,
   transactional `apply`/`preview`, diff helpers, and frontmatter access.
@@ -19,6 +21,7 @@ and the project adheres to semantic versioning in lockstep with the Rust core.
 ### Changed
 - ``write_in_place(backup=True)`` now creates ``path~`` backups to match the
   specification's durability requirements.
+- Published the Python package at ``0.5.0`` to mirror the Rust core version.
 
 ### Documentation
 - Detailed docstrings across the public API, including selector flag semantics

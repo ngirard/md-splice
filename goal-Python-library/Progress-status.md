@@ -82,3 +82,8 @@ update 15
 - Adjusted `write_in_place(backup=True)` to create `path~` siblings so backups match the specification instead of using `.bak` suffixes.
 - Updated the backup regression test and documentation/CHANGELOG to reflect the new naming convention.
 - Reconfirmed parity by rebuilding the extension in editable mode and running the full pytest suite.
+
+update 16
+- Raised the Python package and native crate versions to `0.5.0` so `__version__` mirrors the Rust core as required by the specification.
+- Updated the import smoke test and changelog release notes to track the aligned versioning.
+- Next: prepare distribution metadata (wheels, sdist) for publication under the synchronized version tag.
