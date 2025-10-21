@@ -1,5 +1,6 @@
 ---
 source: tests/cli.rs
+assertion_line: 46
 expression: redact_version(&stdout)
 ---
 Replace a Markdown node with new content
@@ -35,14 +36,14 @@ Options:
 
   -p, --position <POSITION>
           Position for the 'insert' operation
-          
-          [default: after]
 
           Possible values:
           - before:        Insert before the selected node (as a sibling)
           - after:         Insert after the selected node (as a sibling)
           - prepend-child: Insert as the first child of the selected node/section
           - append-child:  Insert as the last child of the selected node/section
+          
+          [default: after]
 
   -h, --help
           Print help (see a summary with '-h')

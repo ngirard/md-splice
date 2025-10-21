@@ -214,6 +214,20 @@ fn block_type_matches(block: &Block, type_str: &str) -> bool {
         Block::ThematicBreak => type_str == "thematicbreak",
         Block::Definition(_) => type_str == "definition",
         Block::FootnoteDefinition(_) => type_str == "footnotedefinition",
+        Block::GitHubAlert(alert) => {
+            let alert_type = match alert.alert_type {
+                markdown_ppp::ast::GitHubAlertType::Note => "note",
+                markdown_ppp::ast::GitHubAlertType::Tip => "tip",
+                markdown_ppp::ast::GitHubAlertType::Important => "important",
+                markdown_ppp::ast::GitHubAlertType::Warning => "warning",
+                markdown_ppp::ast::GitHubAlertType::Caution => "caution",
+            };
+
+            type_str == "githubalert"
+                || type_str == "alert"
+                || type_str == alert_type
+                || type_str == format!("alert-{}", alert_type)
+        }
         Block::Empty => type_str == "empty",
     }
 }
@@ -275,6 +289,12 @@ pub(crate) fn block_to_text(block: &Block) -> String {
             .collect::<Vec<_>>()
             .join("\n"),
         Block::FootnoteDefinition(FootnoteDefinition { blocks, .. }) => blocks
+            .iter()
+            .map(block_to_text)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        Block::GitHubAlert(alert) => alert
+            .blocks
             .iter()
             .map(block_to_text)
             .collect::<Vec<_>>()

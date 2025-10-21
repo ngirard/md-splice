@@ -286,13 +286,17 @@ All provided `--select-*` flags are combined with **AND** logic. For example, `-
 	| `h1` - `h6`              | A heading of a specific level.        | Block  |
 	| `list`                   | An entire ordered or unordered list.  | Block  |
 	| `li`, `item`, `listitem` | An individual item within a list.     | Nested |
-	| `table`                  | A GFM-style table.                    | Block  |
-	| `blockquote`             | A block quote (`> ...`).              | Block  |
-	| `code`, `codeblock`      | A fenced or indented code block.      | Block  |
-	| `html`, `htmlblock`      | A block of raw HTML.                  | Block  |
-	| `thematicbreak`          | A horizontal rule (`---`, `***`, etc.).            | Block  |
-	| `definition`             | A link reference definition, e.g., `[label]: url`.  | Block  |
-	| `footnotedefinition`     | A footnote definition, e.g., `[^label]: text`.  | Block  |
+        | `table`                  | A GFM-style table.                    | Block  |
+        | `blockquote`             | A block quote (`> ...`).              | Block  |
+        | `code`, `codeblock`      | A fenced or indented code block.      | Block  |
+        | `html`, `htmlblock`      | A block of raw HTML.                  | Block  |
+        | `githubalert`, `alert`, `note`, `tip`, `important`, `warning`, `caution`, `alert-note`, `alert-tip`, `alert-important`, `alert-warning`, `alert-caution` | A GitHub-flavored Markdown callout rendered with the "[!TYPE]" syntax. | Block  |
+        | `thematicbreak`          | A horizontal rule (`---`, `***`, etc.).            | Block  |
+        | `definition`             | A link reference definition, e.g., `[label]: url`.  | Block  |
+        | `footnotedefinition`     | A footnote definition, e.g., `[^label]: text`.  | Block  |
+
+  GitHub callouts (also known as GitHub Alerts) can be targeted using any of the strings above.
+  For example, `--select-type alert-warning` matches a callout declared with `[!WARNING]`, while `--select-type note` matches any `[!NOTE]` block regardless of its specific label text.
 
 * `--select-contains <TEXT>`: Matches if the node's text content includes the given string.
 * `--select-regex <REGEX>`: Matches if the node's text content matches the given regular expression.
