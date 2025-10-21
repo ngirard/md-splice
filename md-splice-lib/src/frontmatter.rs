@@ -4,15 +4,20 @@ use serde_yaml::Value as YamlValue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// The serialization format used for the document frontmatter.
 pub enum FrontmatterFormat {
     Yaml,
     Toml,
 }
 
 #[derive(Debug, Clone, PartialEq)]
+/// Parsed representation of a Markdown document split into frontmatter and body.
 pub struct ParsedDocument {
+    /// Deserialized frontmatter payload (YAML) if one exists.
     pub frontmatter: Option<YamlValue>,
+    /// Markdown body content without the frontmatter block.
     pub body: String,
+    /// Serialization format of the frontmatter block.
     pub format: Option<FrontmatterFormat>,
     pub(crate) frontmatter_block: Option<String>,
 }
@@ -25,6 +30,7 @@ impl ParsedDocument {
     }
 }
 
+/// Splits the provided Markdown source into frontmatter metadata and body content.
 pub fn parse(content: &str) -> anyhow::Result<ParsedDocument> {
     let mut parsed = ParsedDocument {
         frontmatter: None,
@@ -84,6 +90,7 @@ pub fn parse(content: &str) -> anyhow::Result<ParsedDocument> {
     Ok(parsed)
 }
 
+/// Recomputes the raw frontmatter block from the structured YAML representation.
 pub fn refresh_frontmatter_block(parsed: &mut ParsedDocument) -> anyhow::Result<()> {
     if parsed.frontmatter.is_some() {
         parsed.ensure_format();
@@ -155,6 +162,7 @@ fn serialize_frontmatter_block(
     Ok(block)
 }
 
+/// Serializes a YAML value to a trimmed string without YAML document markers.
 pub fn serialize_yaml_value(value: &YamlValue) -> anyhow::Result<String> {
     let serialized = serde_yaml::to_string(value)?;
     Ok(trim_yaml_document_markers(&serialized))

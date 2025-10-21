@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
+/// Error type returned when Markdown manipulation fails.
 pub enum SpliceError {
     #[error("Selector did not match any nodes in the document")]
     NodeNotFound,

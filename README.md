@@ -28,6 +28,53 @@ Alternatively, install the latest version directly from the repository:
 cargo install --git https://github.com/ngirard/md-splice.git
 ```
 
+## Using as a Library
+
+`md-splice-lib` exposes the same AST-aware primitives that power the CLI. Add it
+as a dependency in your own crate to perform transactional Markdown updates
+programmatically:
+
+```toml
+[dependencies]
+md-splice-lib = "0.5"
+```
+
+The snippet below loads a document, inserts a checklist item under a scoped
+section, and then renders the updated Markdown:
+
+```rust
+use md_splice_lib::{
+    transaction::{InsertOperation, InsertPosition, Operation, Selector},
+    MarkdownDocument,
+};
+
+fn append_task(markdown: &str) -> Result<String, md_splice_lib::error::SpliceError> {
+    let mut document = MarkdownDocument::from_str(markdown)?;
+
+    let operation = Operation::Insert(InsertOperation {
+        selector: Selector {
+            select_type: Some("list".into()),
+            within: Some(Box::new(Selector {
+                select_type: Some("h2".into()),
+                select_contains: Some("High Priority".into()),
+                ..Selector::default()
+            })),
+            ..Selector::default()
+        },
+        position: InsertPosition::AppendChild,
+        content: Some("- [ ] Review newly filed issues".into()),
+        ..InsertOperation::default()
+    });
+
+    document.apply(vec![operation])?;
+    Ok(document.render())
+}
+```
+
+Every operation is applied atomically. If a selector fails to match or an
+insertion would be ambiguous, `apply` returns a `SpliceError` and the original
+document remains unchanged.
+
 ## Multi-operation transactions with `apply`
 
 Complex document updates often require multiple coordinated inserts, replacements, deletes, or metadata edits. Running each command
