@@ -115,7 +115,7 @@ impl PyMarkdownDocument {
     /// location and does not require the document to originate from disk.
     pub fn write_to(&self, path: &Bound<'_, PyAny>) -> PyResult<()> {
         let path_buf: PathBuf = path.extract()?;
-        write_to_path(&path_buf, &self.inner.render())
+        write_atomic(path_buf.as_path(), &self.inner.render())
     }
 
     /// Apply a list of operations transactionally to the document.
@@ -1325,11 +1325,6 @@ fn unsupported_operation_field(field: &str) -> SpliceError {
     ))
 }
 
-fn write_to_path(path: &Path, content: &str) -> PyResult<()> {
-    fs::write(path, content).map_err(|err| map_io_error(err))?;
-    Ok(())
-}
-
 fn create_backup(path: &Path) -> PyResult<PathBuf> {
     if !path.exists() {
         return Err(map_splice_error(SpliceError::Io(format!(
@@ -1347,12 +1342,10 @@ fn create_backup(path: &Path) -> PyResult<PathBuf> {
 }
 
 fn write_atomic(path: &Path, content: &str) -> PyResult<()> {
-    let parent = path.parent().ok_or_else(|| {
-        map_splice_error(SpliceError::Io(format!(
-            "Cannot determine parent directory of {}",
-            path.display()
-        )))
-    })?;
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        Some(_) | None => Path::new("."),
+    };
 
     let mut temp_file = TempFileBuilder::new()
         .prefix(".md-splice-")

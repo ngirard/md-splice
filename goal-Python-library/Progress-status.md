@@ -72,3 +72,8 @@ update 13
 - Added Hypothesis-backed property tests asserting that failing transactions leave documents untouched and that `preview` never mutates the original document, aligning with the specification's invariants section.
 - Declared a `dev` optional dependency group including `pytest` and `hypothesis` so contributors can install the tooling required for the expanded test suite via `pip install .[dev]`.
 - Verified the new property tests by reinstalling the extension (`maturin develop`) and running `pytest` to ensure the suite passes with the Hypothesis additions.
+
+update 14
+- Corrected `MarkdownDocument.write_to` to reuse the Rust atomic write helper so explicit path writes match the specification's durability guarantees.
+- Taught the atomic writer to tolerate relative target paths and added regression coverage confirming relative paths succeed without leaving the source association requirement behind.
+- Rebuilt the extension in a fresh virtualenv via `python -m maturin develop --manifest-path md-splice-py/Cargo.toml --release` and re-ran `pytest md-splice-py/tests` to ensure the new semantics stay green.

@@ -110,3 +110,14 @@ def test_write_to_creates_new_file(tmp_path: Path) -> None:
     doc.write_to(output_path)
 
     assert output_path.read_text(encoding="utf-8") == doc.render()
+
+
+def test_write_to_supports_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    doc = MarkdownDocument.from_string("Paragraph.\n")
+
+    relative_path = Path("relative.md")
+    doc.write_to(relative_path)
+
+    assert relative_path.exists()
+    assert relative_path.read_text(encoding="utf-8") == doc.render()
