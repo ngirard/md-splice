@@ -1,0 +1,15 @@
+[package]
+name = "md-splice-py"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+name = "md_splice_native"
+crate-type = ["cdylib"]
+
+[dependencies]
+md-splice-lib = { path = "../md-splice-lib" }
+pyo3 = { version = "0.21", features = ["extension-module"] }
+
+[package.metadata.maturin]
+name = "md_splice._native"
