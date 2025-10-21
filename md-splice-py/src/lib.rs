@@ -69,14 +69,20 @@ impl PyMarkdownDocument {
         Ok(self.inner.render())
     }
 
-    pub fn write_in_place(&self) -> PyResult<()> {
+    #[pyo3(signature = (*, backup=false))]
+    pub fn write_in_place(&self, backup: bool) -> PyResult<()> {
         let Some(path) = &self.source_path else {
             return Err(map_splice_error(SpliceError::Io(
                 "Document has no associated path; call write_to() instead.".to_string(),
             )));
         };
-        let path = path.clone();
-        write_atomic(&path, &self.inner.render())?;
+
+        if backup {
+            create_backup(path.as_path())?;
+        }
+
+        let rendered = self.inner.render();
+        write_atomic(path.as_path(), rendered.as_str())?;
         Ok(())
     }
 
@@ -1190,6 +1196,22 @@ fn unsupported_operation_field(field: &str) -> SpliceError {
 fn write_to_path(path: &Path, content: &str) -> PyResult<()> {
     fs::write(path, content).map_err(|err| map_io_error(err))?;
     Ok(())
+}
+
+fn create_backup(path: &Path) -> PyResult<PathBuf> {
+    if !path.exists() {
+        return Err(map_splice_error(SpliceError::Io(format!(
+            "Cannot create backup; file does not exist: {}",
+            path.display()
+        ))));
+    }
+
+    let mut backup_name = path.as_os_str().to_os_string();
+    backup_name.push(".bak");
+    let backup_path = PathBuf::from(backup_name);
+
+    fs::copy(path, &backup_path).map_err(|err| map_io_error(err))?;
+    Ok(backup_path)
 }
 
 fn write_atomic(path: &Path, content: &str) -> PyResult<()> {

@@ -55,6 +55,38 @@ def test_write_in_place_persists_changes_atomically(tmp_path: Path) -> None:
     assert updated.count("- [ ]") == 2
 
 
+def test_write_in_place_can_create_backup(tmp_path: Path) -> None:
+    source_path = tmp_path / "notes.md"
+    original = dedent(
+        """
+        # Notes
+
+        - Original item
+        """
+    ).lstrip()
+    source_path.write_text(original, encoding="utf-8")
+
+    doc = MarkdownDocument.from_file(source_path)
+    doc.apply(
+        [
+            InsertOperation(
+                selector=Selector(select_type="li", select_contains="Original item"),
+                content="- Added later",
+                position=InsertPosition.AFTER,
+            )
+        ]
+    )
+
+    doc.write_in_place(backup=True)
+
+    backup_path = source_path.with_name(f"{source_path.name}.bak")
+    assert backup_path.exists()
+    assert backup_path.read_text(encoding="utf-8") == original
+
+    updated = source_path.read_text(encoding="utf-8")
+    assert "Added later" in updated
+
+
 def test_write_in_place_without_path_raises() -> None:
     doc = MarkdownDocument.from_string("Paragraph.\n")
 
