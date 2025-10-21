@@ -78,7 +78,7 @@ pub fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Command::Apply(args) => {
-            process_apply_command(args)?;
+            process_apply_command(&mut doc.blocks, args)?;
         }
     }
 
@@ -130,7 +130,7 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn process_apply_command(args: ApplyArgs) -> anyhow::Result<()> {
+fn process_apply_command(doc_blocks: &mut Vec<Block>, args: ApplyArgs) -> anyhow::Result<()> {
     let ApplyArgs {
         operations_file,
         operations,
@@ -159,9 +159,21 @@ fn process_apply_command(args: ApplyArgs) -> anyhow::Result<()> {
         }
     };
 
-    let _ = (operations_data, dry_run, diff);
+    if dry_run {
+        log::warn!("--dry-run is not implemented yet and will be ignored.");
+    }
 
-    Err(anyhow!("The apply command is not implemented yet."))
+    if diff {
+        log::warn!("--diff is not implemented yet and will be ignored.");
+    }
+
+    let operations: Vec<Operation> = serde_yaml::from_str(&operations_data).with_context(|| {
+        "Failed to parse operations data as JSON or YAML"
+    })?;
+
+    process_apply(doc_blocks, operations)?;
+
+    Ok(())
 }
 
 #[allow(dead_code)]
