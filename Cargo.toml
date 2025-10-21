@@ -2,6 +2,7 @@
 members = [
     "md-splice-lib",
     "md-splice",
+    "md-splice-py",
 ]
 resolver = "2"
 
