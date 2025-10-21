@@ -25,10 +25,10 @@ use pyo3::{
     create_exception,
     exceptions::{PyException, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyAny, PyDict, PyList, PyModule, PyString, PyTuple, PyType},
+    types::{PyAny, PyAnyMethods, PyDict, PyList, PyModule, PyString, PyTuple, PyType},
     Bound,
 };
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde_json;
 use serde_yaml::{Mapping as YamlMapping, Number as YamlNumber, Value as YamlValue};
 use similar::TextDiff;
@@ -613,7 +613,17 @@ fn py_selector_to_locator(
 
 fn python_regex_to_rust(py: Python<'_>, pattern_obj: &Bound<'_, PyAny>) -> PyResult<Regex> {
     let pattern = extract_regex_pattern(pattern_obj)?;
-    Regex::new(&pattern).map_err(|err| invalid_regex_pyerr(py, err.to_string()))
+    let flags = extract_regex_flags(py, pattern_obj)?;
+
+    let mut builder = RegexBuilder::new(&pattern);
+    builder.case_insensitive(flags.ignore_case);
+    builder.multi_line(flags.multi_line);
+    builder.dot_matches_new_line(flags.dot_all);
+    builder.unicode(true);
+
+    builder
+        .build()
+        .map_err(|err| invalid_regex_pyerr(py, err.to_string()))
 }
 
 fn invalid_regex_pyerr(py: Python<'_>, message: String) -> PyErr {
@@ -634,6 +644,67 @@ fn extract_regex_pattern(pattern_obj: &Bound<'_, PyAny>) -> PyResult<String> {
     } else {
         pattern_obj.extract::<String>()
     }
+}
+
+#[derive(Default)]
+struct RegexFlags {
+    ignore_case: bool,
+    multi_line: bool,
+    dot_all: bool,
+}
+
+fn extract_regex_flags(py: Python<'_>, pattern_obj: &Bound<'_, PyAny>) -> PyResult<RegexFlags> {
+    if !pattern_obj.hasattr("flags")? {
+        return Ok(RegexFlags::default());
+    }
+
+    let flags_value = pattern_obj.getattr("flags")?.extract::<u32>()?;
+    if flags_value == 0 {
+        return Ok(RegexFlags::default());
+    }
+
+    let re_module = PyModule::import_bound(py, "re")?;
+    let flag_ignorecase = re_module.getattr("IGNORECASE")?.extract::<u32>()?;
+    let flag_multiline = re_module.getattr("MULTILINE")?.extract::<u32>()?;
+    let flag_dotall = re_module.getattr("DOTALL")?.extract::<u32>()?;
+    let flag_unicode = re_module.getattr("UNICODE")?.extract::<u32>()?;
+
+    let supported_mask = flag_ignorecase | flag_multiline | flag_dotall | flag_unicode;
+
+    let known_unsupported = [
+        ("VERBOSE", re_module.getattr("VERBOSE")?.extract::<u32>()?),
+        ("ASCII", re_module.getattr("ASCII")?.extract::<u32>()?),
+        ("LOCALE", re_module.getattr("LOCALE")?.extract::<u32>()?),
+        ("DEBUG", re_module.getattr("DEBUG")?.extract::<u32>()?),
+        ("TEMPLATE", re_module.getattr("TEMPLATE")?.extract::<u32>()?),
+    ];
+
+    let mut unsupported: Vec<String> = Vec::new();
+    let mut known_mask = 0u32;
+    for (name, value) in &known_unsupported {
+        known_mask |= *value;
+        if flags_value & value != 0 {
+            unsupported.push(name.to_string());
+        }
+    }
+
+    let leftover = flags_value & !(supported_mask | known_mask);
+    if leftover != 0 {
+        unsupported.push(format!("0x{leftover:x}"));
+    }
+
+    if !unsupported.is_empty() {
+        return Err(invalid_regex_pyerr(
+            py,
+            format!("Unsupported regex flag(s): {}", unsupported.join(", ")),
+        ));
+    }
+
+    Ok(RegexFlags {
+        ignore_case: flags_value & flag_ignorecase != 0,
+        multi_line: flags_value & flag_multiline != 0,
+        dot_all: flags_value & flag_dotall != 0,
+    })
 }
 
 fn compute_range_end(

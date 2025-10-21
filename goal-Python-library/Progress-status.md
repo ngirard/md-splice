@@ -39,3 +39,10 @@ update 07
 - Extended `MarkdownDocument.write_in_place` with a keyword-only `backup` flag that snapshots the current file before atomic replacement to satisfy the safety guarantees in the spec.
 - Added Rust-side backup helper that copies to a `.bak` sibling and enforced existence checks to surface `IoError` when the backing file is missing.
 - Augmented `test_io.py` with coverage proving backups preserve the original content alongside atomic writes, and re-ran the full `maturin develop --release` + `pytest` flow successfully.
+- Next: tighten regex flag parity so Python `re` selectors honor case-insensitive/multiline/dotall semantics.
+
+update 08
+- Translated Python `re` flags into Rust regex builder settings so selectors respect `IGNORECASE`, `MULTILINE`, and `DOTALL`, while rejecting unsupported flags with a typed `InvalidRegexError`.
+- Added regression tests in `test_get.py` covering case-insensitive, multiline, and dotall regex matches plus the unsupported flag failure path.
+- Rebuilt the extension via `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and reran `pytest md-splice-py/tests` to confirm the expanded suite passes.
+- Next: document the supported regex flags in the Python README and surface them in docstrings per the specification's regex notes.
