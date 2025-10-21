@@ -35,6 +35,38 @@ pub enum Command {
     Get(GetArgs),
     /// Apply a sequence of transactional operations to the document.
     Apply(ApplyArgs),
+    /// Inspect or modify document frontmatter.
+    #[command(subcommand)]
+    Frontmatter(FrontmatterCommand),
+}
+
+#[derive(Subcommand, Debug)]
+pub enum FrontmatterCommand {
+    /// Read metadata from the document frontmatter.
+    Get(FrontmatterGetArgs),
+}
+
+#[derive(Parser, Debug)]
+pub struct FrontmatterGetArgs {
+    /// The key to retrieve from the frontmatter. Supports dot and array notation (e.g. `author.name`, `tags[0]`).
+    #[arg(long, value_name = "KEY")]
+    pub key: Option<String>,
+
+    /// Format to print the resulting value in.
+    #[arg(
+        long = "output-format",
+        value_enum,
+        default_value_t = FrontmatterOutputFormat::String,
+        value_name = "FORMAT"
+    )]
+    pub output_format: FrontmatterOutputFormat,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum FrontmatterOutputFormat {
+    String,
+    Json,
+    Yaml,
 }
 
 #[derive(Parser, Debug)]

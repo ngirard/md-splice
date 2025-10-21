@@ -8,10 +8,11 @@ pub mod splicer;
 pub mod transaction;
 
 use crate::cli::{
-    ApplyArgs, Cli, Command, DeleteArgs, GetArgs, InsertPosition as CliInsertPosition,
-    ModificationArgs,
+    ApplyArgs, Cli, Command, DeleteArgs, FrontmatterCommand, FrontmatterGetArgs,
+    FrontmatterOutputFormat, GetArgs, InsertPosition as CliInsertPosition, ModificationArgs,
 };
 use crate::error::SpliceError;
+use crate::frontmatter::ParsedDocument;
 use crate::locator::{locate, locate_all, FoundNode, Selector};
 use crate::splicer::{
     delete, delete_list_item, delete_section, find_heading_section_end, get_heading_level, insert,
@@ -27,6 +28,7 @@ use markdown_ppp::ast::Block;
 use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
 use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
 use regex::Regex;
+use serde_yaml::Value as YamlValue;
 use similar::TextDiff;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -186,6 +188,10 @@ pub fn run() -> anyhow::Result<()> {
         }
         Command::Get(args) => {
             process_get(&doc.blocks, args)?;
+            return Ok(());
+        }
+        Command::Frontmatter(frontmatter_command) => {
+            process_frontmatter_command(&parsed_document, frontmatter_command)?;
             return Ok(());
         }
         Command::Apply(args) => {
@@ -901,6 +907,212 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
     }
 
     Ok(())
+}
+
+fn process_frontmatter_command(
+    parsed_document: &ParsedDocument,
+    command: FrontmatterCommand,
+) -> anyhow::Result<()> {
+    match command {
+        FrontmatterCommand::Get(args) => process_frontmatter_get(parsed_document, args),
+    }
+}
+
+fn process_frontmatter_get(
+    parsed_document: &ParsedDocument,
+    args: FrontmatterGetArgs,
+) -> anyhow::Result<()> {
+    let FrontmatterGetArgs { key, output_format } = args;
+
+    let Some(frontmatter) = parsed_document.frontmatter.as_ref() else {
+        if key.is_some() {
+            return Err(SpliceError::FrontmatterMissing.into());
+        }
+        return Ok(());
+    };
+
+    let value = if let Some(path) = key {
+        let segments = parse_frontmatter_path(&path)?;
+        resolve_frontmatter_path(frontmatter, &segments)
+            .ok_or_else(|| SpliceError::FrontmatterKeyNotFound(path))?
+    } else {
+        frontmatter
+    };
+
+    let mut rendered = match output_format {
+        FrontmatterOutputFormat::String => render_frontmatter_as_string(value)?,
+        FrontmatterOutputFormat::Json => serde_json::to_string(value)?,
+        FrontmatterOutputFormat::Yaml => serialize_yaml_value(value)?,
+    };
+
+    if !rendered.ends_with(['\n', '\r']) {
+        rendered.push('\n');
+    }
+
+    let mut stdout = io::stdout().lock();
+    stdout.write_all(rendered.as_bytes())?;
+    stdout.flush()?;
+
+    Ok(())
+}
+
+#[derive(Debug)]
+enum FrontmatterPathSegment {
+    Key(String),
+    Index(usize),
+}
+
+fn parse_frontmatter_path(path: &str) -> anyhow::Result<Vec<FrontmatterPathSegment>> {
+    if path.trim().is_empty() {
+        return Err(anyhow!("Frontmatter key cannot be empty"));
+    }
+
+    let mut segments = Vec::new();
+    let mut buffer = String::new();
+    let mut chars = path.chars();
+    let mut last_was_separator = true;
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '.' => {
+                if last_was_separator {
+                    return Err(anyhow!(
+                        "Invalid frontmatter path `{}`: consecutive '.' or leading '.' detected",
+                        path
+                    ));
+                }
+                if !buffer.is_empty() {
+                    segments.push(FrontmatterPathSegment::Key(std::mem::take(&mut buffer)));
+                }
+                last_was_separator = true;
+            }
+            '[' => {
+                if !buffer.is_empty() {
+                    segments.push(FrontmatterPathSegment::Key(std::mem::take(&mut buffer)));
+                }
+
+                let mut index_buf = String::new();
+                let mut closed = false;
+                while let Some(next) = chars.next() {
+                    if next == ']' {
+                        closed = true;
+                        break;
+                    }
+                    index_buf.push(next);
+                }
+
+                if !closed {
+                    return Err(anyhow!(
+                        "Invalid frontmatter path `{}`: missing closing ']'",
+                        path
+                    ));
+                }
+
+                if index_buf.is_empty() {
+                    return Err(anyhow!(
+                        "Invalid frontmatter path `{}`: empty array index",
+                        path
+                    ));
+                }
+
+                let index = index_buf.parse::<usize>().map_err(|_| {
+                    anyhow!(
+                        "Invalid frontmatter path `{}`: array index `{}` is not a non-negative integer",
+                        path, index_buf
+                    )
+                })?;
+
+                segments.push(FrontmatterPathSegment::Index(index));
+                last_was_separator = false;
+            }
+            ']' => {
+                return Err(anyhow!(
+                    "Invalid frontmatter path `{}`: unexpected ']'",
+                    path
+                ));
+            }
+            _ => {
+                buffer.push(ch);
+                last_was_separator = false;
+            }
+        }
+    }
+
+    if !buffer.is_empty() {
+        segments.push(FrontmatterPathSegment::Key(buffer));
+        last_was_separator = false;
+    }
+
+    if segments.is_empty() {
+        return Err(anyhow!("Frontmatter key cannot be empty"));
+    }
+
+    if last_was_separator {
+        return Err(anyhow!(
+            "Invalid frontmatter path `{}`: trailing '.' detected",
+            path
+        ));
+    }
+
+    Ok(segments)
+}
+
+fn resolve_frontmatter_path<'a>(
+    mut value: &'a YamlValue,
+    segments: &[FrontmatterPathSegment],
+) -> Option<&'a YamlValue> {
+    for segment in segments {
+        match segment {
+            FrontmatterPathSegment::Key(key) => {
+                let mapping = value.as_mapping()?;
+                let mut next_value = None;
+                for (map_key, map_value) in mapping {
+                    if map_key.as_str() == Some(key.as_str()) {
+                        next_value = Some(map_value);
+                        break;
+                    }
+                }
+                value = next_value?;
+            }
+            FrontmatterPathSegment::Index(index) => {
+                let sequence = value.as_sequence()?;
+                value = sequence.get(*index)?;
+            }
+        }
+    }
+
+    Some(value)
+}
+
+fn render_frontmatter_as_string(value: &YamlValue) -> anyhow::Result<String> {
+    Ok(match value {
+        YamlValue::Null => String::new(),
+        YamlValue::Bool(b) => b.to_string(),
+        YamlValue::Number(n) => n.to_string(),
+        YamlValue::String(s) => s.clone(),
+        _ => serialize_yaml_value(value)?,
+    })
+}
+
+fn serialize_yaml_value(value: &YamlValue) -> anyhow::Result<String> {
+    let serialized = serde_yaml::to_string(value)?;
+    Ok(trim_yaml_document_markers(&serialized))
+}
+
+fn trim_yaml_document_markers(serialized: &str) -> String {
+    let without_start = serialized
+        .strip_prefix("---\n")
+        .or_else(|| serialized.strip_prefix("---\r\n"))
+        .unwrap_or(serialized);
+
+    let without_end = without_start
+        .strip_suffix("\n...")
+        .or_else(|| without_start.strip_suffix("\r\n..."))
+        .or_else(|| without_start.strip_suffix("...\n"))
+        .or_else(|| without_start.strip_suffix("...\r\n"))
+        .unwrap_or(without_start);
+
+    without_end.trim_end_matches(['\n', '\r']).to_string()
 }
 
 #[cfg(test)]
