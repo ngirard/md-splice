@@ -267,3 +267,122 @@ fn apply_command_supports_scoped_selectors() {
     assert!(content.contains("Task Gamma"));
     assert!(content.contains("Task Omega"));
 }
+
+#[test]
+fn apply_command_handles_frontmatter_and_body_operations() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("doc.md");
+    input_file
+        .write_str("---\nstatus: draft\nreviewed: false\n---\n# Title\n\nBody text.\n")
+        .unwrap();
+
+    let operations_file = temp.child("ops.yaml");
+    operations_file
+        .write_str(
+            r#"-
+  op: set_frontmatter
+  key: status
+  value: approved
+-
+  op: insert
+  selector:
+    select_type: h1
+  position: after
+  content: |
+    Summary updated.
+"#,
+        )
+        .unwrap();
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .assert()
+        .success();
+
+    let content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert!(content.contains("status: approved"));
+    assert!(content.contains("Summary updated."));
+    assert!(content.contains("Body text."));
+}
+
+#[test]
+fn apply_command_is_atomic_when_frontmatter_operation_fails() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("doc.md");
+    input_file
+        .write_str("---\nstatus: draft\n---\n# Title\n\nBody text.\n")
+        .unwrap();
+
+    let operations_file = temp.child("ops.yaml");
+    operations_file
+        .write_str(
+            r#"-
+  op: set_frontmatter
+  key: status
+  value: approved
+-
+  op: delete_frontmatter
+  key: does_not_exist
+"#,
+        )
+        .unwrap();
+
+    let assert = cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .assert()
+        .failure();
+
+    assert.stderr(predicate::str::contains(
+        "Frontmatter key 'does_not_exist' was not found",
+    ));
+
+    let content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert!(content.contains("status: draft"));
+    assert!(!content.contains("status: approved"));
+}
+
+#[test]
+fn apply_command_replaces_frontmatter_block() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("doc.md");
+    input_file
+        .write_str("---\nstatus: draft\n---\n# Title\n\nBody text.\n")
+        .unwrap();
+
+    let operations_file = temp.child("ops.yaml");
+    operations_file
+        .write_str(
+            r#"-
+  op: replace_frontmatter
+  format: toml
+  content:
+    title: "Spec"
+    status: approved
+    version: 2
+"#,
+        )
+        .unwrap();
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .assert()
+        .success();
+
+    let content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert!(content.starts_with("+++"));
+    assert!(content.contains("title = \"Spec\""));
+    assert!(content.contains("version = 2"));
+    assert!(content.contains("Body text."));
+}

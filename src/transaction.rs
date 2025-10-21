@@ -1,4 +1,6 @@
+use crate::frontmatter::FrontmatterFormat;
 use serde::Deserialize;
+use serde_yaml::Value as YamlValue;
 use std::path::PathBuf;
 
 fn default_select_ordinal() -> usize {
@@ -15,6 +17,9 @@ pub enum Operation {
     Insert(InsertOperation),
     Replace(ReplaceOperation),
     Delete(DeleteOperation),
+    SetFrontmatter(SetFrontmatterOperation),
+    DeleteFrontmatter(DeleteFrontmatterOperation),
+    ReplaceFrontmatter(ReplaceFrontmatterOperation),
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -68,6 +73,38 @@ pub struct DeleteOperation {
     pub section: bool,
     #[serde(default)]
     pub until: Option<Selector>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct SetFrontmatterOperation {
+    pub key: String,
+    #[serde(default)]
+    pub comment: Option<String>,
+    #[serde(default)]
+    pub value: Option<YamlValue>,
+    #[serde(default)]
+    pub value_file: Option<PathBuf>,
+    #[serde(default)]
+    pub format: Option<FrontmatterFormat>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct DeleteFrontmatterOperation {
+    pub key: String,
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, PartialEq)]
+pub struct ReplaceFrontmatterOperation {
+    #[serde(default)]
+    pub comment: Option<String>,
+    #[serde(default)]
+    pub content: Option<YamlValue>,
+    #[serde(default)]
+    pub content_file: Option<PathBuf>,
+    #[serde(default)]
+    pub format: Option<FrontmatterFormat>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
@@ -208,5 +245,53 @@ mod tests {
         let until = op.until.as_ref().expect("until selector should be present");
         assert_eq!(until.select_type.as_deref(), Some("p"));
         assert_eq!(until.select_contains.as_deref(), Some("Next Steps"));
+    }
+
+    #[test]
+    fn deserialize_frontmatter_operations() {
+        let data = r#"
+        - op: set_frontmatter
+          key: status
+          value: approved
+        - op: delete_frontmatter
+          key: legacy_id
+        - op: replace_frontmatter
+          format: toml
+          content:
+            title: "Spec"
+            version: 2
+        "#;
+
+        let operations: Vec<Operation> = serde_yaml::from_str(data).unwrap();
+        assert_eq!(operations.len(), 3);
+
+        match &operations[0] {
+            Operation::SetFrontmatter(op) => {
+                assert_eq!(op.key, "status");
+                assert_eq!(op.value, Some(YamlValue::String("approved".to_string())));
+                assert!(op.value_file.is_none());
+                assert!(op.format.is_none());
+            }
+            other => panic!("expected set_frontmatter operation, got {other:?}"),
+        }
+
+        match &operations[1] {
+            Operation::DeleteFrontmatter(op) => {
+                assert_eq!(op.key, "legacy_id");
+            }
+            other => panic!("expected delete_frontmatter operation, got {other:?}"),
+        }
+
+        match &operations[2] {
+            Operation::ReplaceFrontmatter(op) => {
+                assert_eq!(op.format, Some(FrontmatterFormat::Toml));
+                let Some(content) = op.content.as_ref() else {
+                    panic!("expected inline content value");
+                };
+                let mapping = content.as_mapping().expect("expected mapping value");
+                assert_eq!(mapping.len(), 2);
+            }
+            other => panic!("expected replace_frontmatter operation, got {other:?}"),
+        }
     }
 }
