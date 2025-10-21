@@ -16,3 +16,9 @@
 - Implemented mutation helpers for nested maps/arrays, YAML value parsing from inline strings or files, and automatic removal of empty frontmatter blocks.
 - Extended integration suite to cover creation, updates, format selection, and deletion flows for frontmatter mutations.
 - Next: integrate frontmatter mutations into transactional `apply` operations (Phase 4).
+
+## update 04
+- Delivered Phase 4 (Transactional Integration) by extending `apply` operations with `set_frontmatter`, `delete_frontmatter`, and `replace_frontmatter` support, keeping frontmatter changes atomic alongside body edits.
+- Added reusable helpers for setting, deleting, and replacing frontmatter so both the CLI and transaction engine share validation/serialization logic.
+- Expanded `apply` integration tests to cover mixed frontmatter/body changes, error rollback guarantees, and format switching for replacement operations.
+- Next: move to Phase 5 to update documentation, CLI help text, and run final polish passes before release.

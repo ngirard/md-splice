@@ -20,8 +20,9 @@ use crate::splicer::{
     insert_list_item, replace, replace_list_item,
 };
 use crate::transaction::{
-    DeleteOperation, InsertOperation, InsertPosition as TransactionInsertPosition, Operation,
-    ReplaceOperation, Selector as TransactionSelector,
+    DeleteFrontmatterOperation, DeleteOperation, InsertOperation,
+    InsertPosition as TransactionInsertPosition, Operation, ReplaceFrontmatterOperation,
+    ReplaceOperation, Selector as TransactionSelector, SetFrontmatterOperation,
 };
 use anyhow::{anyhow, Context};
 use clap::Parser;
@@ -227,7 +228,12 @@ pub fn run() -> anyhow::Result<()> {
             }
         }
         Command::Apply(args) => {
-            output_mode = process_apply_command(&mut doc.blocks, args)?;
+            let (mode, frontmatter_changed) =
+                process_apply_command(&mut doc.blocks, &mut parsed_document, args)?;
+            output_mode = mode;
+            if frontmatter_changed {
+                frontmatter_mode = FrontmatterCommandMode::Mutated;
+            }
         }
     }
 
@@ -309,8 +315,9 @@ pub fn run() -> anyhow::Result<()> {
 
 fn process_apply_command(
     doc_blocks: &mut Vec<Block>,
+    parsed_document: &mut ParsedDocument,
     args: ApplyArgs,
-) -> anyhow::Result<OutputMode> {
+) -> anyhow::Result<(OutputMode, bool)> {
     let ApplyArgs {
         operations_file,
         operations,
@@ -342,22 +349,28 @@ fn process_apply_command(
     let operations: Vec<Operation> = serde_yaml::from_str(&operations_data)
         .with_context(|| "Failed to parse operations data as JSON or YAML")?;
 
-    process_apply(doc_blocks, operations)?;
+    let frontmatter_mutated = process_apply(doc_blocks, parsed_document, operations)?;
 
-    if diff {
-        return Ok(OutputMode::Diff);
-    }
+    let mode = if diff {
+        OutputMode::Diff
+    } else if dry_run {
+        OutputMode::DryRun
+    } else {
+        OutputMode::Write
+    };
 
-    if dry_run {
-        return Ok(OutputMode::DryRun);
-    }
-
-    Ok(OutputMode::Write)
+    Ok((mode, frontmatter_mutated))
 }
 
 #[allow(dead_code)]
-fn process_apply(doc_blocks: &mut Vec<Block>, operations: Vec<Operation>) -> anyhow::Result<()> {
+fn process_apply(
+    doc_blocks: &mut Vec<Block>,
+    parsed_document: &mut ParsedDocument,
+    operations: Vec<Operation>,
+) -> anyhow::Result<bool> {
     let mut working_blocks = doc_blocks.clone();
+    let mut working_document = parsed_document.clone();
+    let mut frontmatter_mutated = false;
 
     for operation in operations {
         match operation {
@@ -366,12 +379,25 @@ fn process_apply(doc_blocks: &mut Vec<Block>, operations: Vec<Operation>) -> any
             }
             Operation::Insert(insert_op) => apply_insert_operation(&mut working_blocks, insert_op)?,
             Operation::Delete(delete_op) => apply_delete_operation(&mut working_blocks, delete_op)?,
+            Operation::SetFrontmatter(set_op) => {
+                apply_set_frontmatter_operation(&mut working_document, set_op)?;
+                frontmatter_mutated = true;
+            }
+            Operation::DeleteFrontmatter(delete_op) => {
+                apply_delete_frontmatter_operation(&mut working_document, delete_op)?;
+                frontmatter_mutated = true;
+            }
+            Operation::ReplaceFrontmatter(replace_op) => {
+                apply_replace_frontmatter_operation(&mut working_document, replace_op)?;
+                frontmatter_mutated = true;
+            }
         }
     }
 
     *doc_blocks = working_blocks;
+    *parsed_document = working_document;
 
-    Ok(())
+    Ok(frontmatter_mutated)
 }
 
 #[allow(dead_code)]
@@ -519,6 +545,47 @@ fn apply_delete_operation(
     }
 
     Ok(())
+}
+
+fn apply_set_frontmatter_operation(
+    parsed_document: &mut ParsedDocument,
+    operation: SetFrontmatterOperation,
+) -> anyhow::Result<()> {
+    let SetFrontmatterOperation {
+        key,
+        comment: _,
+        value,
+        value_file,
+        format,
+    } = operation;
+
+    let new_value = resolve_frontmatter_operation_value(value, value_file, "value")?;
+    let segments = parse_frontmatter_path(&key)?;
+    assign_frontmatter_value(parsed_document, &segments, &key, format, new_value)
+}
+
+fn apply_delete_frontmatter_operation(
+    parsed_document: &mut ParsedDocument,
+    operation: DeleteFrontmatterOperation,
+) -> anyhow::Result<()> {
+    let DeleteFrontmatterOperation { key, comment: _ } = operation;
+    let segments = parse_frontmatter_path(&key)?;
+    remove_frontmatter_value(parsed_document, &segments, &key)
+}
+
+fn apply_replace_frontmatter_operation(
+    parsed_document: &mut ParsedDocument,
+    operation: ReplaceFrontmatterOperation,
+) -> anyhow::Result<()> {
+    let ReplaceFrontmatterOperation {
+        comment: _,
+        content,
+        content_file,
+        format,
+    } = operation;
+
+    let new_value = resolve_frontmatter_operation_value(content, content_file, "content")?;
+    replace_entire_frontmatter(parsed_document, new_value, format)
 }
 
 #[allow(dead_code)]
@@ -1016,38 +1083,8 @@ fn process_frontmatter_set(
 
     let new_value = resolve_frontmatter_value(value, value_file)?;
     let segments = parse_frontmatter_path(&key)?;
-
-    if segments.is_empty() {
-        return Err(anyhow!("Frontmatter key cannot be empty"));
-    }
-
-    if parsed_document.frontmatter.is_none() {
-        match segments.first().unwrap() {
-            FrontmatterPathSegment::Key(_) => {
-                parsed_document.frontmatter = Some(YamlValue::Mapping(Mapping::new()));
-            }
-            FrontmatterPathSegment::Index(_) => {
-                return Err(anyhow!(
-                    "Cannot set array index `{}` because document frontmatter is empty",
-                    key
-                ));
-            }
-        }
-    }
-
-    let format_to_use = match (parsed_document.format, format) {
-        (Some(existing), _) => existing,
-        (None, Some(cli_format)) => FrontmatterFormat::from(cli_format),
-        (None, None) => FrontmatterFormat::Yaml,
-    };
-
-    parsed_document.format = Some(format_to_use);
-
-    let frontmatter_value = parsed_document
-        .frontmatter
-        .get_or_insert_with(|| YamlValue::Mapping(Mapping::new()));
-
-    set_value_at_path(frontmatter_value, &segments, new_value)?;
+    let format_hint = format.map(FrontmatterFormat::from);
+    assign_frontmatter_value(parsed_document, &segments, &key, format_hint, new_value)?;
 
     Ok(())
 }
@@ -1058,23 +1095,8 @@ fn process_frontmatter_delete(
 ) -> anyhow::Result<()> {
     let FrontmatterDeleteArgs { key } = args;
 
-    let Some(frontmatter) = parsed_document.frontmatter.as_mut() else {
-        return Err(SpliceError::FrontmatterMissing.into());
-    };
-
     let segments = parse_frontmatter_path(&key)?;
-
-    let removed = delete_value_at_path(frontmatter, &segments)?;
-
-    if !removed {
-        return Err(SpliceError::FrontmatterKeyNotFound(key).into());
-    }
-
-    if yaml_value_is_empty(frontmatter) {
-        parsed_document.frontmatter = None;
-        parsed_document.frontmatter_block = None;
-        parsed_document.format = None;
-    }
+    remove_frontmatter_value(parsed_document, &segments, &key)?;
 
     Ok(())
 }
@@ -1371,6 +1393,136 @@ fn delete_value_at_path(
     }
 }
 
+fn resolve_frontmatter_operation_value(
+    value: Option<YamlValue>,
+    value_file: Option<PathBuf>,
+    value_label: &str,
+) -> anyhow::Result<YamlValue> {
+    let file_label = format!("{}_file", value_label);
+    match (value, value_file) {
+        (Some(inline), None) => Ok(inline),
+        (None, Some(path)) => {
+            let mut content = String::new();
+            if path.as_os_str() == "-" {
+                io::stdin()
+                    .read_to_string(&mut content)
+                    .with_context(|| format!("Failed to read {value_label} from stdin"))?;
+            } else {
+                content = fs::read_to_string(&path).with_context(|| {
+                    format!(
+                        "Failed to read {} file for frontmatter operation: {}",
+                        file_label,
+                        path.display()
+                    )
+                })?;
+            }
+
+            parse_yaml_value(&content)
+        }
+        (Some(_), Some(_)) => Err(anyhow!(
+            "Specify either `{}` or `{}` for frontmatter operation, not both",
+            value_label,
+            file_label
+        )),
+        (None, None) => Err(anyhow!(
+            "Frontmatter operation requires either `{}` or `{}`",
+            value_label,
+            file_label
+        )),
+    }
+}
+
+fn assign_frontmatter_value(
+    parsed_document: &mut ParsedDocument,
+    segments: &[FrontmatterPathSegment],
+    key_display: &str,
+    format_hint: Option<FrontmatterFormat>,
+    new_value: YamlValue,
+) -> anyhow::Result<()> {
+    if segments.is_empty() {
+        return Err(anyhow!("Frontmatter key cannot be empty"));
+    }
+
+    if parsed_document.frontmatter.is_none() {
+        match segments.first().unwrap() {
+            FrontmatterPathSegment::Key(_) => {
+                parsed_document.frontmatter = Some(YamlValue::Mapping(Mapping::new()));
+            }
+            FrontmatterPathSegment::Index(_) => {
+                return Err(anyhow!(
+                    "Cannot set array index `{}` because document frontmatter is empty",
+                    key_display
+                ));
+            }
+        }
+    }
+
+    let format_to_use = match (parsed_document.format, format_hint) {
+        (Some(existing), _) => existing,
+        (None, Some(hint)) => hint,
+        (None, None) => FrontmatterFormat::Yaml,
+    };
+
+    parsed_document.format = Some(format_to_use);
+
+    let frontmatter_value = parsed_document
+        .frontmatter
+        .get_or_insert_with(|| YamlValue::Mapping(Mapping::new()));
+
+    set_value_at_path(frontmatter_value, segments, new_value)?;
+
+    Ok(())
+}
+
+fn remove_frontmatter_value(
+    parsed_document: &mut ParsedDocument,
+    segments: &[FrontmatterPathSegment],
+    key_display: &str,
+) -> anyhow::Result<()> {
+    let Some(frontmatter) = parsed_document.frontmatter.as_mut() else {
+        return Err(SpliceError::FrontmatterMissing.into());
+    };
+
+    let removed = delete_value_at_path(frontmatter, segments)?;
+
+    if !removed {
+        return Err(SpliceError::FrontmatterKeyNotFound(key_display.to_string()).into());
+    }
+
+    if yaml_value_is_empty(frontmatter) {
+        parsed_document.frontmatter = None;
+        parsed_document.frontmatter_block = None;
+        parsed_document.format = None;
+    }
+
+    Ok(())
+}
+
+fn replace_entire_frontmatter(
+    parsed_document: &mut ParsedDocument,
+    new_value: YamlValue,
+    format_hint: Option<FrontmatterFormat>,
+) -> anyhow::Result<()> {
+    if new_value.is_null() {
+        parsed_document.frontmatter = None;
+        parsed_document.frontmatter_block = None;
+        parsed_document.format = None;
+        return Ok(());
+    }
+
+    parsed_document.frontmatter = Some(new_value);
+
+    let format_to_use = match (format_hint, parsed_document.format) {
+        (Some(hint), _) => hint,
+        (None, Some(existing)) => existing,
+        (None, None) => FrontmatterFormat::Yaml,
+    };
+
+    parsed_document.format = Some(format_to_use);
+
+    Ok(())
+}
+
 fn yaml_value_is_empty(value: &YamlValue) -> bool {
     match value {
         YamlValue::Null => true,
@@ -1419,6 +1571,12 @@ mod tests {
         let initial = "# Project Tasks\n\nStatus: In Progress\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
         let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
 
         let operations = vec![Operation::Replace(ReplaceOperation {
             selector: TxSelector {
@@ -1435,7 +1593,9 @@ mod tests {
             until: None,
         })];
 
-        process_apply(&mut blocks, operations).expect("replace operation succeeds");
+        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+            .expect("replace operation succeeds");
+        assert!(!frontmatter_changed);
 
         let rendered = render_markdown(
             &Document {
@@ -1453,6 +1613,12 @@ mod tests {
         let initial = "# Tasks\n\n- [ ] Write documentation\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
         let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
 
         let operations = vec![Operation::Insert(InsertOperation {
             selector: TxSelector {
@@ -1469,7 +1635,9 @@ mod tests {
             position: TxInsertPosition::Before,
         })];
 
-        process_apply(&mut blocks, operations).expect("insert operation succeeds");
+        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+            .expect("insert operation succeeds");
+        assert!(!frontmatter_changed);
 
         let rendered = render_markdown(
             &Document {
@@ -1495,6 +1663,12 @@ mod tests {
         let initial = "# Project Tasks\n\n- [ ] Write documentation\n\n## Low Priority\n- [ ] Old task\n- [ ] Another task\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
         let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
 
         let operations = vec![
             Operation::Delete(DeleteOperation {
@@ -1525,7 +1699,9 @@ mod tests {
             }),
         ];
 
-        process_apply(&mut blocks, operations).expect("delete operations succeed");
+        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+            .expect("delete operations succeed");
+        assert!(!frontmatter_changed);
 
         let rendered = render_markdown(
             &Document {
@@ -1546,6 +1722,12 @@ mod tests {
             "# Guide\n\n## Installation\nStep one.\n\nStep two.\n\n## Usage\nUsage notes.\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
         let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
 
         let operations = vec![Operation::Replace(ReplaceOperation {
             selector: TxSelector {
@@ -1569,7 +1751,9 @@ mod tests {
             }),
         })];
 
-        process_apply(&mut blocks, operations).expect("replace range succeeds");
+        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+            .expect("replace range succeeds");
+        assert!(!frontmatter_changed);
 
         let rendered = render_markdown(
             &Document {
@@ -1588,6 +1772,12 @@ mod tests {
         let initial = "# Roadmap\n\n## Future Features\n- [ ] Task Alpha\n- [ ] Task Beta\n- [ ] Task Gamma\n\n## Done\n- [x] Task Omega\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
         let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
 
         let operations = vec![Operation::Delete(DeleteOperation {
             selector: TxSelector {
@@ -1610,7 +1800,9 @@ mod tests {
             until: None,
         })];
 
-        process_apply(&mut blocks, operations).expect("scoped delete succeeds");
+        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+            .expect("scoped delete succeeds");
+        assert!(!frontmatter_changed);
 
         let rendered = render_markdown(
             &Document {
@@ -1630,7 +1822,14 @@ mod tests {
         let initial = "# Project Tasks\n\nStatus: In Progress\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
         let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
         let original_blocks = blocks.clone();
+        let original_document = parsed_document.clone();
 
         let operations = vec![
             Operation::Replace(ReplaceOperation {
@@ -1662,7 +1861,7 @@ mod tests {
             }),
         ];
 
-        let result = process_apply(&mut blocks, operations);
+        let result = process_apply(&mut blocks, &mut parsed_document, operations);
 
         assert!(
             result.is_err(),
@@ -1671,6 +1870,10 @@ mod tests {
         assert_eq!(
             blocks, original_blocks,
             "document blocks should remain unchanged on failure"
+        );
+        assert_eq!(
+            parsed_document, original_document,
+            "parsed document should remain unchanged on failure"
         );
     }
 }
