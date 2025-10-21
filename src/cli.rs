@@ -31,6 +31,8 @@ pub enum Command {
     /// Delete a Markdown node or section.
     #[command(alias = "remove")]
     Delete(DeleteArgs),
+    /// Read Markdown content matching a selector without modifying the file.
+    Get(GetArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -97,6 +99,49 @@ pub struct DeleteArgs {
     /// When deleting a heading, also delete its entire section.
     #[arg(long, requires = "select_type")]
     pub section: bool,
+}
+
+/// Arguments for the `get` command.
+#[derive(Parser, Debug)]
+pub struct GetArgs {
+    // --- Node Selection ---
+    /// Select node by type (e.g., 'p', 'h1', 'list', 'table').
+    #[arg(long, value_name = "TYPE")]
+    pub select_type: Option<String>,
+
+    /// Select node by its text content (fixed string).
+    #[arg(long, value_name = "TEXT")]
+    pub select_contains: Option<String>,
+
+    /// Select node by its text content (regex pattern).
+    #[arg(long, value_name = "REGEX")]
+    pub select_regex: Option<String>,
+
+    /// Select the Nth matching node (1-indexed). Default is 1.
+    #[arg(
+        long,
+        value_name = "N",
+        default_value_t = 1,
+        conflicts_with = "select_all"
+    )]
+    pub select_ordinal: usize,
+
+    /// When selecting a heading, include the entire section.
+    #[arg(long, requires = "select_type")]
+    pub section: bool,
+
+    /// Select all nodes matching the criteria instead of a single node.
+    #[arg(long)]
+    pub select_all: bool,
+
+    /// Separator to print between results when --select-all is used. [default: "\n"]
+    #[arg(
+        long,
+        default_value = "\n",
+        requires = "select_all",
+        allow_hyphen_values = true
+    )]
+    pub separator: String,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]

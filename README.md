@@ -1,13 +1,13 @@
 # md-splice
 
-A command-line tool for precise, AST-aware insertion, replacement, and deletion of content within Markdown files.
+A command-line tool for precise, AST-aware insertion, replacement, deletion, and retrieval of content within Markdown files.
 
 `md-splice` parses Markdown into an Abstract Syntax Tree (AST), allowing you to select and modify logical document elements (like headings, paragraphs, or lists) instead of relying on fragile text or regex matching. It supports atomic in-place file updates to prevent data loss.
 
 ## Core features
 
 * **Structurally-aware modifications**: Operates on the Markdown AST, not plain text.
-* **Insert, replace, or delete**: Supports inserting new content, replacing existing nodes, or deleting nodes and sections entirely.
+* **Insert, replace, delete, or get**: Supports inserting new content, replacing existing nodes, deleting nodes and sections entirely, or reading Markdown without modifying the file.
 * **Powerful node selection**: Select elements by type (`h1`, `p`, `list`), text content (fixed string or regex), and ordinal position (e.g., the 3rd paragraph).
 * **Heading section logic**: Intelligently handles insertions relative to a heading, correctly identifying the "section" of content that belongs to it.
 * **Safe file handling**: Performs atomic in-place writes to prevent file corruption on error. Can also write to a new file or standard output.
@@ -35,7 +35,7 @@ md-splice --file <PATH> [COMMAND] [OPTIONS]
 ```
 
 * `--file <PATH>`: The Markdown file to modify.
-* `[COMMAND]`: One of `insert`, `replace`, or `delete` (alias: `remove`).
+* `[COMMAND]`: One of `insert`, `replace`, `delete` (alias: `remove`), or `get`.
 * `[OPTIONS]`: Selectors and content options.
 
 ### Examples
@@ -231,7 +231,33 @@ Resulting `todo.md`:
 - [ ] Call the client
 ```
 
-#### 6. Delete Content
+#### 6. Read Markdown with `get`
+
+Use the read-only `get` command when you want to inspect nodes without modifying the file. The selectors behave exactly the same as they do for `insert`, `replace`, and `delete`.
+
+**Read a paragraph by ordinal:**
+
+```sh
+md-splice --file report.md get \
+  --select-type p --select-ordinal 2
+```
+
+**Capture an entire heading section:**
+
+```sh
+md-splice --file docs.md get \
+  --select-type h2 --select-contains "Installation" --section
+```
+
+**List every unchecked task with a custom separator:**
+
+```sh
+md-splice --file todo.md get \
+  --select-type li --select-contains "[ ]" \
+  --select-all --separator '\0'
+```
+
+#### 7. Delete Content
 
 The `delete` command removes nodes from the document using the same selector system. It also supports an optional `--section` f
 lag for heading-aware deletions.
@@ -341,6 +367,23 @@ Options:
       --select-regex <REGEX>    Select node by its text content (regex pattern)
       --select-ordinal <N>      Select the Nth matching node (1-indexed) [default: 1]
       --section                 When deleting a heading, also delete its entire section
+```
+
+#### `get`
+
+Reads Markdown nodes that match the selector flags and prints them to `stdout` without modifying the source document.
+
+```
+Usage: md-splice get [OPTIONS]
+
+Options:
+      --select-type <TYPE>      Select node by type (e.g., 'p', 'h1', 'list')
+      --select-contains <TEXT>  Select node by its text content (fixed string)
+      --select-regex <REGEX>    Select node by its text content (regex pattern)
+      --select-ordinal <N>      Select the Nth matching node (1-indexed) [default: 1]
+      --select-all              Select all nodes matching the criteria
+      --section                 When selecting a heading, get its entire section
+      --separator <STRING>      Separator to use between results with --select-all [default: "\n"]
 ```
 
 ### Selector Options

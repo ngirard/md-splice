@@ -5,11 +5,12 @@ pub mod error;
 pub mod locator;
 pub mod splicer;
 
-use crate::cli::{Cli, Command, DeleteArgs, ModificationArgs};
+use crate::cli::{Cli, Command, DeleteArgs, GetArgs, ModificationArgs};
 use crate::error::SpliceError;
-use crate::locator::{locate, FoundNode, Selector};
+use crate::locator::{locate, locate_all, FoundNode, Selector};
 use crate::splicer::{
-    delete, delete_list_item, delete_section, insert, insert_list_item, replace, replace_list_item,
+    delete, delete_list_item, delete_section, find_heading_section_end, get_heading_level, insert,
+    insert_list_item, replace, replace_list_item,
 };
 use anyhow::{anyhow, Context};
 use clap::Parser;
@@ -68,6 +69,10 @@ pub fn run() -> anyhow::Result<()> {
         }
         Command::Delete(args) => {
             process_delete(&mut doc.blocks, args)?;
+        }
+        Command::Get(args) => {
+            process_get(&doc.blocks, args)?;
+            return Ok(());
         }
     }
 
@@ -197,6 +202,125 @@ fn process_insert_or_replace(
     }
 
     Ok(())
+}
+
+fn process_get(doc_blocks: &[Block], args: GetArgs) -> anyhow::Result<()> {
+    let GetArgs {
+        select_type,
+        select_contains,
+        select_regex,
+        select_ordinal,
+        section,
+        select_all,
+        separator,
+    } = args;
+
+    let select_regex = if let Some(pattern) = select_regex {
+        Some(Regex::new(&pattern).context("Invalid regex pattern for --select-regex")?)
+    } else {
+        None
+    };
+
+    let selector = Selector {
+        select_type,
+        select_contains,
+        select_regex,
+        select_ordinal,
+    };
+
+    if select_all {
+        let matches = locate_all(doc_blocks, &selector)?;
+        if matches.is_empty() {
+            return Ok(());
+        }
+
+        let mut had_trailing_newline = false;
+        let mut rendered_items = Vec::with_capacity(matches.len());
+        for found in &matches {
+            let rendered = if section {
+                render_heading_section(doc_blocks, found)?
+            } else {
+                render_found_node(doc_blocks, found)?
+            };
+
+            if rendered.ends_with('\n') {
+                had_trailing_newline = true;
+            }
+            rendered_items.push(rendered);
+        }
+
+        let normalized: Vec<String> = rendered_items
+            .into_iter()
+            .map(|s| s.trim_end_matches('\n').to_string())
+            .collect();
+
+        let mut output = normalized.join(&separator);
+        if had_trailing_newline && separator.ends_with('\n') {
+            output.push('\n');
+        }
+
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(output.as_bytes())?;
+        stdout.flush()?;
+        return Ok(());
+    }
+
+    let (found_node, _) = locate(doc_blocks, &selector)?;
+    let mut stdout = io::stdout().lock();
+    let rendered = if section {
+        render_heading_section(doc_blocks, &found_node)?
+    } else {
+        render_found_node(doc_blocks, &found_node)?
+    };
+    stdout.write_all(rendered.as_bytes())?;
+    stdout.flush()?;
+
+    Ok(())
+}
+
+fn render_heading_section(doc_blocks: &[Block], found: &FoundNode) -> anyhow::Result<String> {
+    if let FoundNode::Block { index, block } = found {
+        if let Some(level) = get_heading_level(block) {
+            let end_index = find_heading_section_end(doc_blocks, *index, level);
+            return Ok(render_blocks(&doc_blocks[*index..end_index]));
+        }
+    }
+
+    Err(SpliceError::SectionRequiresHeading.into())
+}
+
+fn render_found_node(doc_blocks: &[Block], found: &FoundNode) -> anyhow::Result<String> {
+    match found {
+        FoundNode::Block { block, .. } => Ok(render_blocks(std::slice::from_ref(block))),
+        FoundNode::ListItem {
+            block_index, item, ..
+        } => match doc_blocks.get(*block_index) {
+            Some(Block::List(list)) => {
+                let mut single_list = list.clone();
+                single_list.items = vec![(*item).clone()];
+                Ok(render_blocks(std::slice::from_ref(&Block::List(
+                    single_list,
+                ))))
+            }
+            _ => Err(anyhow!(
+                "Internal error: block at index {} is not a list",
+                block_index
+            )),
+        },
+    }
+}
+
+fn render_blocks(blocks: &[Block]) -> String {
+    use markdown_ppp::ast::Document;
+
+    let temp_doc = Document {
+        blocks: blocks.to_vec(),
+    };
+    let mut rendered = render_markdown(&temp_doc, PrinterConfig::default());
+    if !rendered.is_empty() && !rendered.ends_with('\n') {
+        rendered.push('\n');
+    }
+    rendered
 }
 
 fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Result<()> {
