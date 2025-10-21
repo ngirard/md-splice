@@ -71,6 +71,50 @@ pub struct ModificationArgs {
     #[arg(long, value_name = "N", default_value_t = 1)]
     pub select_ordinal: usize,
 
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-type", value_name = "TYPE")]
+    pub after_select_type: Option<String>,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-contains", value_name = "TEXT")]
+    pub after_select_contains: Option<String>,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-regex", value_name = "REGEX")]
+    pub after_select_regex: Option<String>,
+
+    /// Choose the Nth landmark match for the `--after` selector (1-indexed).
+    #[arg(long = "after-select-ordinal", value_name = "N")]
+    pub after_select_ordinal: Option<usize>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-type", value_name = "TYPE")]
+    pub within_select_type: Option<String>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-contains", value_name = "TEXT")]
+    pub within_select_contains: Option<String>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-regex", value_name = "REGEX")]
+    pub within_select_regex: Option<String>,
+
+    /// Choose the Nth landmark match for the `--within` selector (1-indexed).
+    #[arg(long = "within-select-ordinal", value_name = "N")]
+    pub within_select_ordinal: Option<usize>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(long = "until-type", value_name = "TYPE")]
+    pub until_type: Option<String>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(long = "until-contains", value_name = "TEXT")]
+    pub until_contains: Option<String>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(long = "until-regex", value_name = "REGEX")]
+    pub until_regex: Option<String>,
+
     // --- Insert-specific options ---
     /// Position for the 'insert' operation.
     #[arg(short, long, value_enum, default_value_t = InsertPosition::After)]
@@ -96,6 +140,50 @@ pub struct DeleteArgs {
     /// Select the Nth matching node (1-indexed). Default is 1.
     #[arg(long, value_name = "N", default_value_t = 1)]
     pub select_ordinal: usize,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-type", value_name = "TYPE")]
+    pub after_select_type: Option<String>,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-contains", value_name = "TEXT")]
+    pub after_select_contains: Option<String>,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-regex", value_name = "REGEX")]
+    pub after_select_regex: Option<String>,
+
+    /// Choose the Nth landmark match for the `--after` selector (1-indexed).
+    #[arg(long = "after-select-ordinal", value_name = "N")]
+    pub after_select_ordinal: Option<usize>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-type", value_name = "TYPE")]
+    pub within_select_type: Option<String>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-contains", value_name = "TEXT")]
+    pub within_select_contains: Option<String>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-regex", value_name = "REGEX")]
+    pub within_select_regex: Option<String>,
+
+    /// Choose the Nth landmark match for the `--within` selector (1-indexed).
+    #[arg(long = "within-select-ordinal", value_name = "N")]
+    pub within_select_ordinal: Option<usize>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(long = "until-type", value_name = "TYPE")]
+    pub until_type: Option<String>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(long = "until-contains", value_name = "TEXT")]
+    pub until_contains: Option<String>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(long = "until-regex", value_name = "REGEX")]
+    pub until_regex: Option<String>,
 
     // --- Delete-specific options ---
     /// When deleting a heading, also delete its entire section.
@@ -127,6 +215,62 @@ pub struct GetArgs {
         conflicts_with = "select_all"
     )]
     pub select_ordinal: usize,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-type", value_name = "TYPE")]
+    pub after_select_type: Option<String>,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-contains", value_name = "TEXT")]
+    pub after_select_contains: Option<String>,
+
+    /// Restrict the search to the first match that occurs after another selector.
+    #[arg(long = "after-select-regex", value_name = "REGEX")]
+    pub after_select_regex: Option<String>,
+
+    /// Choose the Nth landmark match for the `--after` selector (1-indexed).
+    #[arg(long = "after-select-ordinal", value_name = "N")]
+    pub after_select_ordinal: Option<usize>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-type", value_name = "TYPE")]
+    pub within_select_type: Option<String>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-contains", value_name = "TEXT")]
+    pub within_select_contains: Option<String>,
+
+    /// Restrict the search to nodes contained within another selector.
+    #[arg(long = "within-select-regex", value_name = "REGEX")]
+    pub within_select_regex: Option<String>,
+
+    /// Choose the Nth landmark match for the `--within` selector (1-indexed).
+    #[arg(long = "within-select-ordinal", value_name = "N")]
+    pub within_select_ordinal: Option<usize>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(
+        long = "until-type",
+        value_name = "TYPE",
+        conflicts_with = "select_all"
+    )]
+    pub until_type: Option<String>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(
+        long = "until-contains",
+        value_name = "TEXT",
+        conflicts_with = "select_all"
+    )]
+    pub until_contains: Option<String>,
+
+    /// Select nodes up to (but not including) another selector.
+    #[arg(
+        long = "until-regex",
+        value_name = "REGEX",
+        conflicts_with = "select_all"
+    )]
+    pub until_regex: Option<String>,
 
     /// When selecting a heading, include the entire section.
     #[arg(long, requires = "select_type")]
