@@ -8,7 +8,7 @@ A command-line tool for precise, AST-aware insertion, replacement, deletion, and
 
 * **Structurally-aware modifications**: Operates on the Markdown AST, not plain text.
 * **Insert, replace, delete, or get**: Supports inserting new content, replacing existing nodes, deleting nodes and sections entirely, or reading Markdown without modifying the file.
-* **Powerful node selection**: Select elements by type (`h1`, `p`, `list`), text content (fixed string or regex), and ordinal position (e.g., the 3rd paragraph).
+* **Powerful node selection**: Select elements by type (`h1`, `p`, `list`), text content (fixed string or regex), ordinal position, relational landmarks (`--after-*`, `--within-*`), and ranges (`--until-*`).
 * **Heading section logic**: Intelligently handles insertions relative to a heading, correctly identifying the "section" of content that belongs to it.
 * **Safe file handling**: Performs atomic in-place writes to prevent file corruption on error. Can also write to a new file or standard output.
 * **Multi-operation transactions**: Execute a sequence of inserts, replacements, and deletes atomically with a single command.
@@ -47,17 +47,30 @@ Example operations file (`changes.yaml`):
 
 ```yaml
 - op: replace
-  select_contains: "Status: In Progress"
-  content: "Status: **Complete**"
+  selector:
+    select_type: h2
+    select_contains: "Deprecated API"
+  until:
+    select_type: h2
+    select_contains: "Examples"
+  content: |
+    ## Deprecated API
+    This section has been removed.
 - op: insert
-  select_type: li
-  select_contains: "Write documentation"
-  position: before
+  selector:
+    select_type: list
+    within:
+      select_type: h2
+      select_contains: "High Priority"
+  position: append_child
   content: "- [ ] Implement unit tests"
 - op: delete
-  select_type: h2
-  select_contains: "Low Priority"
-  section: true
+  selector:
+    select_type: p
+    select_contains: "Legacy notice"
+    after:
+      select_type: h2
+      select_contains: "Deprecated API"
 ```
 
 Run the transaction and preview the diff without touching the file:
@@ -71,16 +84,85 @@ When `--diff` is supplied, `md-splice` prints a unified diff (with `original`/`m
 
 ### Operations file structure
 
-Each transaction file is an array of operation objects. Every object includes a `op` field (`insert`, `replace`, or `delete`)
-plus selector keys written in `snake_case` (`select_type`, `select_contains`, `select_regex`, `select_ordinal`). Operation
-variants accept additional fields:
+Each transaction file is an array of operation objects. Every object includes an `op` field (`insert`, `replace`, or `delete`)
+and a nested `selector` object describing the primary match (`select_type`, `select_contains`, `select_regex`, `select_ordinal`).
+Selectors can optionally include their own `after` or `within` selector objects to scope the search before the primary match is
+resolved. Range-based operations supply an optional top-level `until` selector that marks the exclusive end of the span.
 
-* `replace`: `content` or `content_file`.
+Operation variants accept additional fields:
+
+* `replace`: `content` or `content_file`, plus optional `until` to replace a span of blocks.
 * `insert`: `content`/`content_file` plus optional `position` (`before`, `after`, `prepend_child`, `append_child`).
-* `delete`: optional `section` to remove an entire heading section.
+* `delete`: optional `section` to remove an entire heading section, or `until` to delete a range of blocks.
 
 See [`goal-transactions/Transactions-specification.md`](goal-transactions/Transactions-specification.md) for the complete
 schema, examples, and behavioral guarantees.
+
+## Scoped and Range-Based Selections
+
+Selectors can be refined with relational context to express intent unambiguously. Every command that accepts selectors (`replace`,
+`insert`, `delete`, `get`, and transactional operations) supports the same modifiers:
+
+### Landmark scoping with `--after-*`
+
+Use `--after-select-*` flags to locate a landmark node first, then search for the primary match that appears after it. This is
+useful for commands like "the first paragraph after Installation":
+
+```sh
+md-splice --file README.md get \
+  --select-type p \
+  --after-select-type h2 \
+  --after-select-contains "Installation"
+```
+
+### Section scoping with `--within-*`
+
+Use `--within-select-*` flags to restrict the search to nodes contained by another selector. When the landmark is a heading, the
+search is limited to that heading's section; for lists and block quotes the child nodes are searched.
+
+```sh
+md-splice --file ROADMAP.md delete \
+  --select-type li --select-contains "[ ] Task Beta" \
+  --within-select-type h2 --within-select-contains "Future Features"
+```
+
+### Range selection with `--until-*`
+
+Range selectors extend an operation from the starting node to the node matched by the `--until-*` flags (exclusive). When the
+ending selector is not found, the range extends to the end of the document.
+
+```sh
+md-splice --file docs/api.md replace \
+  --select-type h2 --select-contains "Deprecated API" \
+  --until-type h2 --until-contains "Examples" \
+  --content "## Deprecated API\nThis section has been removed."
+```
+
+Scoped selectors and range selectors can be composed. For example, the `apply` transaction below finds the first list item after
+"Task Alpha" within the "Future Features" section and deletes everything from the "Deprecated API" heading up to "Examples":
+
+```yaml
+- op: delete
+  selector:
+    select_type: li
+    select_contains: Task Beta
+    after:
+      select_type: li
+      select_contains: Task Alpha
+    within:
+      select_type: h2
+      select_contains: Future Features
+- op: replace
+  selector:
+    select_type: h2
+    select_contains: Deprecated API
+  until:
+    select_type: h2
+    select_contains: Examples
+  content: |
+    ## Deprecated API
+    This section has been removed.
+```
 
 ## Usage
 
@@ -375,11 +457,13 @@ Create an operations file describing the desired changes:
 
 ```yaml
 - op: replace
-  select_contains: "Status: In Progress"
+  selector:
+    select_contains: "Status: In Progress"
   content: "Status: **Complete**"
 - op: insert
-  select_type: li
-  select_contains: "Write documentation"
+  selector:
+    select_type: li
+    select_contains: "Write documentation"
   position: before
   content: "- [ ] Implement unit tests"
 ```
@@ -415,6 +499,18 @@ Options:
       --select-contains <TEXT>       Select node by its text content (fixed string)
       --select-regex <REGEX>         Select node by its text content (regex pattern)
       --select-ordinal <N>           Select the Nth matching node (1-indexed) [default: 1]
+      --after-select-type <TYPE>     Restrict the search to matches that occur after another selector
+      --after-select-contains <TEXT> Restrict the search to matches that occur after another selector
+      --after-select-regex <REGEX>   Restrict the search to matches that occur after another selector
+      --after-select-ordinal <N>     Choose the Nth landmark match for the `--after` selector (1-indexed)
+      --within-select-type <TYPE>    Restrict the search to nodes contained within another selector
+      --within-select-contains <TEXT>
+                                    Restrict the search to nodes contained within another selector
+      --within-select-regex <REGEX>  Restrict the search to nodes contained within another selector
+      --within-select-ordinal <N>    Choose the Nth landmark match for the `--within` selector (1-indexed)
+      --until-type <TYPE>            Extend the operation up to (but not including) another selector
+      --until-contains <TEXT>        Extend the operation up to (but not including) another selector
+      --until-regex <REGEX>          Extend the operation up to (but not including) another selector
 ```
 
 #### `insert`
@@ -431,8 +527,19 @@ Options:
       --select-contains <TEXT>       Select node by its text content (fixed string)
       --select-regex <REGEX>         Select node by its text content (regex pattern)
   --select-ordinal <N>           Select the Nth matching node (1-indexed) [default: 1]
+      --after-select-type <TYPE>     Restrict the search to matches that occur after another selector
+      --after-select-contains <TEXT> Restrict the search to matches that occur after another selector
+      --after-select-regex <REGEX>   Restrict the search to matches that occur after another selector
+      --after-select-ordinal <N>     Choose the Nth landmark match for the `--after` selector (1-indexed)
+      --within-select-type <TYPE>    Restrict the search to nodes contained within another selector
+      --within-select-contains <TEXT>
+                                    Restrict the search to nodes contained within another selector
+      --within-select-regex <REGEX>  Restrict the search to nodes contained within another selector
+      --within-select-ordinal <N>    Choose the Nth landmark match for the `--within` selector (1-indexed)
   -p, --position <POSITION>        Position for the 'insert' operation [default: after]
 ```
+
+Range selectors (`--until-*`) are only valid with the `replace` command.
 
 #### `delete`
 
@@ -447,6 +554,18 @@ Options:
       --select-contains <TEXT>  Select node by its text content (fixed string)
       --select-regex <REGEX>    Select node by its text content (regex pattern)
       --select-ordinal <N>      Select the Nth matching node (1-indexed) [default: 1]
+      --after-select-type <TYPE>     Restrict the search to matches that occur after another selector
+      --after-select-contains <TEXT> Restrict the search to matches that occur after another selector
+      --after-select-regex <REGEX>   Restrict the search to matches that occur after another selector
+      --after-select-ordinal <N>     Choose the Nth landmark match for the `--after` selector (1-indexed)
+      --within-select-type <TYPE>    Restrict the search to nodes contained within another selector
+      --within-select-contains <TEXT>
+                                    Restrict the search to nodes contained within another selector
+      --within-select-regex <REGEX>  Restrict the search to nodes contained within another selector
+      --within-select-ordinal <N>    Choose the Nth landmark match for the `--within` selector (1-indexed)
+      --until-type <TYPE>            Extend the delete up to (but not including) another selector
+      --until-contains <TEXT>        Extend the delete up to (but not including) another selector
+      --until-regex <REGEX>          Extend the delete up to (but not including) another selector
       --section                 When deleting a heading, also delete its entire section
 ```
 
@@ -462,6 +581,18 @@ Options:
       --select-contains <TEXT>  Select node by its text content (fixed string)
       --select-regex <REGEX>    Select node by its text content (regex pattern)
       --select-ordinal <N>      Select the Nth matching node (1-indexed) [default: 1]
+      --after-select-type <TYPE>     Restrict the search to matches that occur after another selector
+      --after-select-contains <TEXT> Restrict the search to matches that occur after another selector
+      --after-select-regex <REGEX>   Restrict the search to matches that occur after another selector
+      --after-select-ordinal <N>     Choose the Nth landmark match for the `--after` selector (1-indexed)
+      --within-select-type <TYPE>    Restrict the search to nodes contained within another selector
+      --within-select-contains <TEXT>
+                                    Restrict the search to nodes contained within another selector
+      --within-select-regex <REGEX>  Restrict the search to nodes contained within another selector
+      --within-select-ordinal <N>    Choose the Nth landmark match for the `--within` selector (1-indexed)
+      --until-type <TYPE>            Extend the read up to (but not including) another selector
+      --until-contains <TEXT>        Extend the read up to (but not including) another selector
+      --until-regex <REGEX>          Extend the read up to (but not including) another selector
       --select-all              Select all nodes matching the criteria
       --section                 When selecting a heading, get its entire section
       --separator <STRING>      Separator to use between results with --select-all [default: "\n"]
