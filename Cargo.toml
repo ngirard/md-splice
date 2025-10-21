@@ -11,6 +11,7 @@ env_logger = "0.11.8"
 log = "0.4.28"
 markdown-ppp = { version = "2.7.1", features = ["ast-serde", "parser", "printer", "serde"] }
 regex = "1.12.2"
+similar = "2.7.0"
 tempfile = "3.23.0"
 thiserror = "2.0.17"
 serde = { version = "1.0.228", features = ["derive"] }

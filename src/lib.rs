@@ -26,9 +26,16 @@ use markdown_ppp::ast::Block;
 use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
 use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
 use regex::Regex;
+use similar::TextDiff;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+
+enum OutputMode {
+    Write,
+    DryRun,
+    Diff,
+}
 
 /// The main entry point for the application logic.
 pub fn run() -> anyhow::Result<()> {
@@ -69,6 +76,8 @@ pub fn run() -> anyhow::Result<()> {
     let mut doc = parse_markdown(MarkdownParserState::default(), &input_content)
         .map_err(|e| anyhow!("Failed to parse input markdown: {}", e))?;
 
+    let mut output_mode = OutputMode::Write;
+
     match command {
         Command::Insert(args) => {
             process_insert_or_replace(&mut doc.blocks, args, false)?;
@@ -84,12 +93,29 @@ pub fn run() -> anyhow::Result<()> {
             return Ok(());
         }
         Command::Apply(args) => {
-            process_apply_command(&mut doc.blocks, args)?;
+            output_mode = process_apply_command(&mut doc.blocks, args)?;
         }
     }
 
     // 5. Render AST to string
     let output_content = render_markdown(&doc, PrinterConfig::default());
+
+    match output_mode {
+        OutputMode::DryRun => {
+            io::stdout().write_all(output_content.as_bytes())?;
+            return Ok(());
+        }
+        OutputMode::Diff => {
+            let diff_output = TextDiff::from_lines(&input_content, &output_content)
+                .unified_diff()
+                .header("original", "modified")
+                .to_string();
+
+            io::stdout().write_all(diff_output.as_bytes())?;
+            return Ok(());
+        }
+        OutputMode::Write => {}
+    }
 
     // 12. Write to output (file, in-place, or stdout)
     if let Some(output_path) = &output {
@@ -136,7 +162,10 @@ pub fn run() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn process_apply_command(doc_blocks: &mut Vec<Block>, args: ApplyArgs) -> anyhow::Result<()> {
+fn process_apply_command(
+    doc_blocks: &mut Vec<Block>,
+    args: ApplyArgs,
+) -> anyhow::Result<OutputMode> {
     let ApplyArgs {
         operations_file,
         operations,
@@ -165,20 +194,20 @@ fn process_apply_command(doc_blocks: &mut Vec<Block>, args: ApplyArgs) -> anyhow
         }
     };
 
-    if dry_run {
-        log::warn!("--dry-run is not implemented yet and will be ignored.");
-    }
-
-    if diff {
-        log::warn!("--diff is not implemented yet and will be ignored.");
-    }
-
     let operations: Vec<Operation> = serde_yaml::from_str(&operations_data)
         .with_context(|| "Failed to parse operations data as JSON or YAML")?;
 
     process_apply(doc_blocks, operations)?;
 
-    Ok(())
+    if diff {
+        return Ok(OutputMode::Diff);
+    }
+
+    if dry_run {
+        return Ok(OutputMode::DryRun);
+    }
+
+    Ok(OutputMode::Write)
 }
 
 #[allow(dead_code)]

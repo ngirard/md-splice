@@ -8,4 +8,10 @@
 - update 06: Finished Strategy Phase 3 Step 3.2 by adding transactional delete support (including section deletes) and the unit test `process_apply_deletes_list_item_and_section`. Command executed: `cargo test process_apply -- --nocapture` (passes).
 - update 07: Finished Strategy Phase 4 by making `process_apply` atomic (cloning the document before applying operations) and adding safeguards via the unit test `process_apply_is_atomic_when_operation_fails` and integration test `apply_command_is_atomic_when_operation_fails`. Commands executed: `cargo test process_apply_is_atomic_when_operation_fails`, `cargo test --test apply apply_command_is_atomic_when_operation_fails`, and `cargo test` (all pass).
 
-Remaining work: implement UX enhancements for `--dry-run`/`--diff` (Phase 5).
+- update 08: Finished Strategy Phase 5 (Steps 5.1 and 5.2) by adding full support for
+  `--dry-run` and `--diff`, including stdout rendering, unified diff generation, and
+  new integration tests (`apply_command_supports_dry_run`,
+  `apply_command_supports_diff_output`) with snapshot coverage. Commands executed:
+  `cargo test apply_command_supports_ -- --nocapture`, `cargo test` (both pass).
+
+All strategy phases are now complete; multi-operation support feature is fully implemented.

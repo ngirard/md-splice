@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use assert_fs::prelude::*;
+use insta::assert_snapshot;
 use predicates::prelude::*;
 
 fn cmd() -> Command {
@@ -93,4 +94,86 @@ fn apply_command_is_atomic_when_operation_fails() {
 
     let content = std::fs::read_to_string(input_file.path()).unwrap();
     assert_eq!(content, "# Title\n\nStatus: In Progress\n");
+}
+
+#[test]
+fn apply_command_supports_dry_run() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file.write_str("# Title\n\nReplace me.\n").unwrap();
+
+    let operations_file = temp.child("ops.json");
+    operations_file
+        .write_str(
+            r#"[
+    {
+        "op": "replace",
+        "select_contains": "Replace me.",
+        "content": "Updated content."
+    }
+]"#,
+        )
+        .unwrap();
+
+    let original_content = std::fs::read_to_string(input_file.path()).unwrap();
+
+    let output = cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .arg("--dry-run")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_eq!(stdout, "# Title\n\nUpdated content.");
+
+    let current_content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert_eq!(current_content, original_content);
+}
+
+#[test]
+fn apply_command_supports_diff_output() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# Title\n\nReplace me.\nSecond line.\n")
+        .unwrap();
+
+    let operations_file = temp.child("ops.json");
+    operations_file
+        .write_str(
+            r#"[
+    {
+        "op": "replace",
+        "select_contains": "Replace me.",
+        "content": "Updated content."
+    }
+]"#,
+        )
+        .unwrap();
+
+    let original_content = std::fs::read_to_string(input_file.path()).unwrap();
+
+    let output = cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .arg("--diff")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert_snapshot!("apply_command_diff_output", stdout);
+
+    let current_content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert_eq!(current_content, original_content);
 }
