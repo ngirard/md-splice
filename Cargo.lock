@@ -617,8 +617,10 @@ dependencies = [
 name = "md-splice-py"
 version = "0.0.1"
 dependencies = [
+ "markdown-ppp",
  "md-splice-lib",
  "pyo3",
+ "regex",
  "serde_yaml",
 ]
 

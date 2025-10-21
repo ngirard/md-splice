@@ -16,3 +16,9 @@ update 03
 - Expanded Python error hierarchy and implemented Rust-to-Python exception mapping so core errors surface as typed subclasses.
 - Introduced selector-focused pytest coverage and error mapping regression test, all passing under `maturin develop` + `.venv/bin/python -m pytest`.
 - Next: wire selectors into native `get`/operation bindings and continue fleshing out operation dataclasses.
+
+update 04
+- Implemented `MarkdownDocument.get` in the Rust extension with selector conversion, range/section rendering, and list-item handling for parity with the CLI get command.
+- Added Rust helpers for regex bridging, heading section computation, and markdown rendering plus a Python test suite (`test_get.py`) covering type/regex filters, sections, ranges, and select-all semantics.
+- Verified editable build via `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and passing tests with `.venv/bin/python -m pytest md-splice-py/tests`.
+- Next: extend bindings to cover transactional operations (`apply`) and diff/preview helpers per Milestone 5.
