@@ -44,6 +44,10 @@ pub enum Command {
 pub enum FrontmatterCommand {
     /// Read metadata from the document frontmatter.
     Get(FrontmatterGetArgs),
+    /// Write metadata to the document frontmatter.
+    Set(FrontmatterSetArgs),
+    /// Remove metadata from the document frontmatter.
+    Delete(FrontmatterDeleteArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -67,6 +71,43 @@ pub enum FrontmatterOutputFormat {
     String,
     Json,
     Yaml,
+}
+
+#[derive(Parser, Debug)]
+pub struct FrontmatterSetArgs {
+    /// The key to set in the frontmatter. Supports dot and array notation (e.g. `author.name`, `tags[0]`).
+    #[arg(long, value_name = "KEY")]
+    pub key: String,
+
+    /// The value to assign, parsed as YAML.
+    #[arg(long, value_name = "VALUE", conflicts_with = "value_file")]
+    pub value: Option<String>,
+
+    /// Path to a file containing the value to assign, parsed as YAML. Use '-' to read from stdin.
+    #[arg(
+        long,
+        value_name = "VALUE_PATH",
+        conflicts_with = "value",
+        alias = "value-path"
+    )]
+    pub value_file: Option<PathBuf>,
+
+    /// When creating frontmatter, choose the serialization format. Ignored if frontmatter already exists.
+    #[arg(long, value_enum, value_name = "FORMAT")]
+    pub format: Option<FrontmatterFormatArg>,
+}
+
+#[derive(Parser, Debug)]
+pub struct FrontmatterDeleteArgs {
+    /// The key to delete from the frontmatter. Supports dot and array notation (e.g. `author.name`, `tags[0]`).
+    #[arg(long, value_name = "KEY")]
+    pub key: String,
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq, ValueEnum)]
+pub enum FrontmatterFormatArg {
+    Yaml,
+    Toml,
 }
 
 #[derive(Parser, Debug)]

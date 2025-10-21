@@ -15,6 +15,14 @@ pub struct ParsedDocument {
     pub(crate) frontmatter_block: Option<String>,
 }
 
+impl ParsedDocument {
+    fn ensure_format(&mut self) {
+        if self.format.is_none() {
+            self.format = Some(FrontmatterFormat::Yaml);
+        }
+    }
+}
+
 pub fn parse(content: &str) -> anyhow::Result<ParsedDocument> {
     let mut parsed = ParsedDocument {
         frontmatter: None,
@@ -72,6 +80,98 @@ pub fn parse(content: &str) -> anyhow::Result<ParsedDocument> {
     parsed.frontmatter_block = Some(frontmatter_block.to_string());
 
     Ok(parsed)
+}
+
+pub fn refresh_frontmatter_block(parsed: &mut ParsedDocument) -> anyhow::Result<()> {
+    if parsed.frontmatter.is_some() {
+        parsed.ensure_format();
+        let format = parsed
+            .format
+            .ok_or_else(|| anyhow!("Frontmatter format missing during serialization"))?;
+
+        let block = {
+            let value = parsed
+                .frontmatter
+                .as_ref()
+                .ok_or_else(|| anyhow!("Frontmatter missing during serialization"))?;
+            serialize_frontmatter_block(value, format)?
+        };
+
+        parsed.frontmatter_block = Some(block);
+    } else {
+        parsed.frontmatter_block = None;
+        parsed.format = None;
+    }
+
+    Ok(())
+}
+
+fn serialize_frontmatter_block(
+    value: &YamlValue,
+    format: FrontmatterFormat,
+) -> anyhow::Result<String> {
+    let (delimiter, mut serialized) = match format {
+        FrontmatterFormat::Yaml => {
+            if value.is_null() {
+                ("---", String::new())
+            } else {
+                let yaml = serialize_yaml_value(value)?;
+                ("---", yaml)
+            }
+        }
+        FrontmatterFormat::Toml => {
+            if value.is_null() {
+                ("+++", String::new())
+            } else {
+                let toml_value: toml::Value =
+                    serde_yaml::from_value(value.clone()).map_err(|err| {
+                        anyhow!("Failed to convert YAML value into TOML frontmatter: {err}")
+                    })?;
+                let toml = toml::to_string_pretty(&toml_value)
+                    .map_err(|err| anyhow!("Failed to serialize TOML frontmatter: {err}"))?;
+                ("+++", toml)
+            }
+        }
+    };
+
+    while serialized.ends_with(['\n', '\r']) {
+        serialized.pop();
+    }
+
+    let mut block = String::new();
+    block.push_str(delimiter);
+    block.push('\n');
+
+    if !serialized.is_empty() {
+        block.push_str(&serialized);
+        block.push('\n');
+    }
+
+    block.push_str(delimiter);
+    block.push('\n');
+
+    Ok(block)
+}
+
+pub fn serialize_yaml_value(value: &YamlValue) -> anyhow::Result<String> {
+    let serialized = serde_yaml::to_string(value)?;
+    Ok(trim_yaml_document_markers(&serialized))
+}
+
+pub fn trim_yaml_document_markers(serialized: &str) -> String {
+    let without_start = serialized
+        .strip_prefix("---\n")
+        .or_else(|| serialized.strip_prefix("---\r\n"))
+        .unwrap_or(serialized);
+
+    let without_end = without_start
+        .strip_suffix("\n...")
+        .or_else(|| without_start.strip_suffix("\r\n..."))
+        .or_else(|| without_start.strip_suffix("...\n"))
+        .or_else(|| without_start.strip_suffix("...\r\n"))
+        .unwrap_or(without_start);
+
+    without_end.trim_end_matches(['\n', '\r']).to_string()
 }
 
 fn strip_opening_delimiter<'a>(content: &'a str, delimiter: &str) -> Option<&'a str> {

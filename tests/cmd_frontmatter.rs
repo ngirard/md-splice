@@ -133,3 +133,132 @@ fn missing_frontmatter_with_key_errors() {
         "No frontmatter exists in the document.",
     ));
 }
+
+#[test]
+fn set_updates_existing_key_in_yaml() {
+    let file = assert_fs::NamedTempFile::new("doc.md").unwrap();
+    file.write_str(fixture_document()).unwrap();
+
+    let mut cmd = Command::cargo_bin("md-splice").unwrap();
+    cmd.arg("--file")
+        .arg(file.path())
+        .arg("frontmatter")
+        .arg("set")
+        .arg("--key")
+        .arg("status")
+        .arg("--value")
+        .arg("published");
+
+    cmd.assert().success();
+
+    file.assert(predicate::str::contains("status: published"));
+    file.assert(predicate::str::contains("# Heading"));
+}
+
+#[test]
+fn set_creates_frontmatter_when_missing() {
+    let file = assert_fs::NamedTempFile::new("new.md").unwrap();
+    file.write_str("# Fresh document\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("md-splice").unwrap();
+    cmd.arg("--file")
+        .arg(file.path())
+        .arg("frontmatter")
+        .arg("set")
+        .arg("--key")
+        .arg("title")
+        .arg("--value")
+        .arg("Fresh document");
+
+    cmd.assert().success();
+
+    file.assert(predicate::str::starts_with("---"));
+    file.assert(predicate::str::contains("title: Fresh document"));
+}
+
+#[test]
+fn set_respects_requested_format_for_new_toml_frontmatter() {
+    let file = assert_fs::NamedTempFile::new("toml.md").unwrap();
+    file.write_str("# Fresh document\n").unwrap();
+
+    let mut cmd = Command::cargo_bin("md-splice").unwrap();
+    cmd.arg("--file")
+        .arg(file.path())
+        .arg("frontmatter")
+        .arg("set")
+        .arg("--key")
+        .arg("title")
+        .arg("--value")
+        .arg("Fresh document")
+        .arg("--format")
+        .arg("toml");
+
+    cmd.assert().success();
+
+    file.assert(predicate::str::starts_with("+++"));
+    file.assert(predicate::str::contains("title = \"Fresh document\""));
+}
+
+#[test]
+fn set_reads_value_from_file() {
+    let file = assert_fs::NamedTempFile::new("doc.md").unwrap();
+    file.write_str(fixture_document()).unwrap();
+
+    let value_file = assert_fs::NamedTempFile::new("value.yaml").unwrap();
+    value_file
+        .write_str("reviewers:\n  - name: Dana\n")
+        .unwrap();
+
+    let mut cmd = Command::cargo_bin("md-splice").unwrap();
+    cmd.arg("--file")
+        .arg(file.path())
+        .arg("frontmatter")
+        .arg("set")
+        .arg("--key")
+        .arg("metadata")
+        .arg("--value-file")
+        .arg(value_file.path());
+
+    cmd.assert().success();
+
+    file.assert(predicate::str::contains(
+        "metadata:\n  reviewers:\n  - name: Dana",
+    ));
+}
+
+#[test]
+fn delete_removes_key_and_frontmatter_block_when_empty() {
+    let file = assert_fs::NamedTempFile::new("doc.md").unwrap();
+    file.write_str("---\nstatus: draft\n---\n# Heading\n")
+        .unwrap();
+
+    let mut cmd = Command::cargo_bin("md-splice").unwrap();
+    cmd.arg("--file")
+        .arg(file.path())
+        .arg("frontmatter")
+        .arg("delete")
+        .arg("--key")
+        .arg("status");
+
+    cmd.assert().success();
+
+    file.assert(predicate::str::starts_with("# Heading"));
+}
+
+#[test]
+fn delete_missing_key_reports_error() {
+    let file = assert_fs::NamedTempFile::new("doc.md").unwrap();
+    file.write_str(fixture_document()).unwrap();
+
+    let mut cmd = Command::cargo_bin("md-splice").unwrap();
+    cmd.arg("--file")
+        .arg(file.path())
+        .arg("frontmatter")
+        .arg("delete")
+        .arg("--key")
+        .arg("missing");
+
+    cmd.assert().failure().stderr(predicate::str::contains(
+        "Frontmatter key 'missing' was not found.",
+    ));
+}

@@ -10,3 +10,9 @@
 - Added CLI wiring, parsing helpers, and stdout rendering utilities to expose parsed frontmatter without altering the Markdown body flow.
 - Implemented comprehensive integration coverage for frontmatter reads and refreshed CLI help snapshot to surface the new subcommand.
 - Next: move into Phase 3 by building `frontmatter set`/`delete`, including mutation helpers and serialization back to disk.
+
+## update 03
+- Completed Phase 3 (Write Operations) by adding `frontmatter set` and `frontmatter delete` subcommands with YAML/TOML-aware serialization.
+- Implemented mutation helpers for nested maps/arrays, YAML value parsing from inline strings or files, and automatic removal of empty frontmatter blocks.
+- Extended integration suite to cover creation, updates, format selection, and deletion flows for frontmatter mutations.
+- Next: integrate frontmatter mutations into transactional `apply` operations (Phase 4).
