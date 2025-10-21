@@ -6,10 +6,25 @@ pub mod locator;
 pub mod splicer;
 pub mod transaction;
 
-use crate::cli::{ApplyArgs, Cli, Command, DeleteArgs, GetArgs, ModificationArgs};
+use crate::cli::{
+    ApplyArgs,
+    Cli,
+    Command,
+    DeleteArgs,
+    GetArgs,
+    InsertPosition as CliInsertPosition,
+    ModificationArgs,
+};
 use crate::error::SpliceError;
 use crate::locator::{locate, locate_all, FoundNode, Selector};
-use crate::transaction::{Operation, ReplaceOperation, Selector as TransactionSelector};
+use crate::transaction::{
+    DeleteOperation,
+    InsertOperation,
+    InsertPosition as TransactionInsertPosition,
+    Operation,
+    ReplaceOperation,
+    Selector as TransactionSelector,
+};
 use crate::splicer::{
     delete, delete_list_item, delete_section, find_heading_section_end, get_heading_level, insert,
     insert_list_item, replace, replace_list_item,
@@ -181,12 +196,8 @@ fn process_apply(doc_blocks: &mut Vec<Block>, operations: Vec<Operation>) -> any
     for operation in operations {
         match operation {
             Operation::Replace(replace_op) => apply_replace_operation(doc_blocks, replace_op)?,
-            Operation::Insert(_) => {
-                anyhow::bail!("insert operation is not implemented yet");
-            }
-            Operation::Delete(_) => {
-                anyhow::bail!("delete operation is not implemented yet");
-            }
+            Operation::Insert(insert_op) => apply_insert_operation(doc_blocks, insert_op)?,
+            Operation::Delete(delete_op) => apply_delete_operation(doc_blocks, delete_op)?,
         }
     }
 
@@ -229,6 +240,86 @@ fn apply_replace_operation(
 }
 
 #[allow(dead_code)]
+fn apply_insert_operation(
+    doc_blocks: &mut Vec<Block>,
+    operation: InsertOperation,
+) -> anyhow::Result<()> {
+    let selector = build_locator_selector(&operation.selector)?;
+    let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
+
+    if is_ambiguous {
+        log::warn!(
+            "Warning: Selector matched multiple nodes. Operation was applied to the first match only."
+        );
+    }
+
+    let content_str = resolve_operation_content(operation.content, operation.content_file)?;
+    let new_content_doc = parse_markdown(MarkdownParserState::default(), &content_str)
+        .map_err(|e| anyhow!("Failed to parse content markdown: {}", e))?;
+    let new_blocks = new_content_doc.blocks;
+    let position = map_transaction_insert_position(operation.position);
+
+    match found_node {
+        FoundNode::Block { index, .. } => {
+            insert(doc_blocks, index, new_blocks, position)?;
+        }
+        FoundNode::ListItem {
+            block_index,
+            item_index,
+            ..
+        } => {
+            insert_list_item(doc_blocks, block_index, item_index, new_blocks, position)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn apply_delete_operation(
+    doc_blocks: &mut Vec<Block>,
+    operation: DeleteOperation,
+) -> anyhow::Result<()> {
+    let selector = build_locator_selector(&operation.selector)?;
+    let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
+
+    if is_ambiguous {
+        log::warn!(
+            "Warning: Selector matched multiple nodes. Operation was applied to the first match only."
+        );
+    }
+
+    match found_node {
+        FoundNode::Block { index, block } => {
+            if operation.section {
+                if matches!(block, Block::Heading(_)) {
+                    delete_section(doc_blocks, index);
+                } else {
+                    return Err(SpliceError::InvalidSectionDelete.into());
+                }
+            } else {
+                delete(doc_blocks, index);
+            }
+        }
+        FoundNode::ListItem {
+            block_index,
+            item_index,
+            ..
+        } => {
+            if operation.section {
+                return Err(SpliceError::InvalidSectionDelete.into());
+            }
+            let list_became_empty = delete_list_item(doc_blocks, block_index, item_index)?;
+            if list_became_empty {
+                delete(doc_blocks, block_index);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
 fn build_locator_selector(selector: &TransactionSelector) -> anyhow::Result<Selector> {
     let select_regex = if let Some(pattern) = &selector.select_regex {
         Some(
@@ -262,6 +353,15 @@ fn resolve_operation_content(
         (None, None) => Err(anyhow!(
             "Operation must provide inline content or a content_file"
         )),
+    }
+}
+
+fn map_transaction_insert_position(position: TransactionInsertPosition) -> CliInsertPosition {
+    match position {
+        TransactionInsertPosition::Before => CliInsertPosition::Before,
+        TransactionInsertPosition::After => CliInsertPosition::After,
+        TransactionInsertPosition::PrependChild => CliInsertPosition::PrependChild,
+        TransactionInsertPosition::AppendChild => CliInsertPosition::AppendChild,
     }
 }
 
@@ -527,7 +627,14 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transaction::{Operation, ReplaceOperation, Selector as TxSelector};
+    use crate::transaction::{
+        DeleteOperation,
+        InsertOperation,
+        InsertPosition as TxInsertPosition,
+        Operation,
+        ReplaceOperation,
+        Selector as TxSelector,
+    };
     use markdown_ppp::ast::Document;
     use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
     use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
@@ -561,5 +668,86 @@ mod tests {
 
         assert!(rendered.contains("Status: **Complete**"));
         assert!(!rendered.contains("Status: In Progress"));
+    }
+
+    #[test]
+    fn process_apply_inserts_list_item_before_target() {
+        let initial = "# Tasks\n\n- [ ] Write documentation\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+
+        let operations = vec![Operation::Insert(InsertOperation {
+            selector: TxSelector {
+                select_type: Some("li".to_string()),
+                select_contains: Some("Write documentation".to_string()),
+                select_regex: None,
+                select_ordinal: 1,
+            },
+            comment: None,
+            content: Some("- [ ] Implement unit tests".to_string()),
+            content_file: None,
+            position: TxInsertPosition::Before,
+        })];
+
+        process_apply(&mut blocks, operations).expect("insert operation succeeds");
+
+        let rendered = render_markdown(
+            &Document {
+                blocks: blocks.clone(),
+            },
+            PrinterConfig::default(),
+        );
+
+        let unit_index = rendered
+            .find("- [ ] Implement unit tests")
+            .expect("inserted item present");
+        let docs_index = rendered
+            .find("- [ ] Write documentation")
+            .expect("original item present");
+        assert!(unit_index < docs_index, "inserted item should appear before original item");
+    }
+
+    #[test]
+    fn process_apply_deletes_list_item_and_section() {
+        let initial = "# Project Tasks\n\n- [ ] Write documentation\n\n## Low Priority\n- [ ] Old task\n- [ ] Another task\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+
+        let operations = vec![
+            Operation::Delete(DeleteOperation {
+                selector: TxSelector {
+                    select_type: Some("li".to_string()),
+                    select_contains: Some("Old task".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                },
+                comment: None,
+                section: false,
+            }),
+            Operation::Delete(DeleteOperation {
+                selector: TxSelector {
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Low Priority".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                },
+                comment: None,
+                section: true,
+            }),
+        ];
+
+        process_apply(&mut blocks, operations).expect("delete operations succeed");
+
+        let rendered = render_markdown(
+            &Document {
+                blocks: blocks.clone(),
+            },
+            PrinterConfig::default(),
+        );
+
+        assert!(!rendered.contains("Old task"));
+        assert!(!rendered.contains("Low Priority"));
+        assert!(!rendered.contains("Another task"));
+        assert!(rendered.contains("Write documentation"));
     }
 }
