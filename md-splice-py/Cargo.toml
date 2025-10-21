@@ -2,6 +2,12 @@
 name = "md-splice-py"
 version = "0.5.0"
 edition = "2021"
+description = "Python bindings for the md-splice Markdown editing toolkit"
+license = "MIT"
+homepage = "https://github.com/ngirard/md-splice"
+repository = "https://github.com/ngirard/md-splice"
+documentation = "https://github.com/ngirard/md-splice/tree/main/goal-Python-library"
+readme = "README.md"
 
 [lib]
 name = "md_splice_native"

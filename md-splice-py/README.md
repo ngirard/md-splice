@@ -77,3 +77,20 @@ evaluating the pattern (with `re.UNICODE` tolerated as Python's default). Any
 other flag—such as `re.VERBOSE`, `re.ASCII`, `re.LOCALE`, or `re.DEBUG`—will
 raise `md_splice.errors.InvalidRegexError`, matching the limitations outlined
 in `goal-Python-library/Specification.md`.
+
+## Building distributable artifacts
+
+The project ships both source distributions and wheels generated via
+[`maturin`](https://github.com/PyO3/maturin). To build release artifacts aligned
+with the Rust `0.5.0` tag:
+
+```bash
+python -m pip install maturin
+python -m maturin build --release          # wheels for the current interpreter
+python -m maturin sdist                     # source distribution with metadata
+```
+
+The resulting files appear under `target/` (for wheels) and `dist/` (for the
+sdist). Both artifacts embed the synchronized version number and include the
+project license, changelog, and README so that PyPI consumers receive the same
+context as the Rust crate.
