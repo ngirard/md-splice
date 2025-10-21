@@ -28,3 +28,9 @@ update 05
 - Exposed `MarkdownDocument.apply`, `preview`, and `clone`, plus `diff_unified`, with ambiguity warnings surfaced via Python's warnings system.
 - Extended Rust core with `ApplyOutcome` metadata and Python bindings to emit warnings, alongside a new test suite (`test_apply.py`) covering insert/replace/delete/frontmatter ops, atomicity, preview, and diff helpers.
 - Verified editable build with `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and `pytest` across the full test matrix.
+
+update 06
+- Added file I/O ergonomics with `MarkdownDocument.from_file`, `write_in_place` (atomic replace), and `write_to`, tracking source paths and surfacing Python `IoError` on failure.
+- Implemented shared ops serialization via `loads_operations`/`dumps_operations` bridging YAML/JSON schemas with the Python dataclasses while rejecting unsupported file-based fields.
+- Expanded tests with `test_io.py`, `test_operations_io.py`, and import smoke checks plus refreshed README quickstart documenting the new workflow.
+- Confirmed coverage by rebuilding the extension with `maturin develop` and running `pytest` against the augmented suite.
