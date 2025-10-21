@@ -360,6 +360,7 @@ fn build_locator_selector(selector: &TransactionSelector) -> anyhow::Result<Sele
         select_contains: selector.select_contains.clone(),
         select_regex,
         select_ordinal: selector.select_ordinal,
+        ..Default::default()
     })
 }
 
@@ -416,6 +417,7 @@ fn process_insert_or_replace(
         select_contains,
         select_regex,
         select_ordinal,
+        ..Default::default()
     };
 
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
@@ -492,6 +494,7 @@ fn process_get(doc_blocks: &[Block], args: GetArgs) -> anyhow::Result<()> {
         select_contains,
         select_regex,
         select_ordinal,
+        ..Default::default()
     };
 
     if select_all {
@@ -609,6 +612,7 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
         select_contains,
         select_regex,
         select_ordinal,
+        ..Default::default()
     };
 
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
