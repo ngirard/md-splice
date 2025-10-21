@@ -2,6 +2,7 @@
 
 pub mod cli;
 pub mod error;
+pub mod frontmatter;
 pub mod locator;
 pub mod splicer;
 pub mod transaction;
@@ -165,8 +166,10 @@ pub fn run() -> anyhow::Result<()> {
         buf
     };
 
-    // 4. Parse markdown to AST
-    let mut doc = parse_markdown(MarkdownParserState::default(), &input_content)
+    // 4. Parse frontmatter and markdown body
+    let parsed_document = crate::frontmatter::parse(&input_content)?;
+
+    let mut doc = parse_markdown(MarkdownParserState::default(), &parsed_document.body)
         .map_err(|e| anyhow!("Failed to parse input markdown: {}", e))?;
 
     let mut output_mode = OutputMode::Write;
@@ -191,7 +194,14 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     // 5. Render AST to string
-    let output_content = render_markdown(&doc, PrinterConfig::default());
+    let body_output = render_markdown(&doc, PrinterConfig::default());
+    let mut output_content = String::new();
+
+    if let Some(prefix) = parsed_document.frontmatter_block.as_deref() {
+        output_content.push_str(prefix);
+    }
+
+    output_content.push_str(&body_output);
 
     match output_mode {
         OutputMode::DryRun => {
