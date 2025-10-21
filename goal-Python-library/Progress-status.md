@@ -34,3 +34,8 @@ update 06
 - Implemented shared ops serialization via `loads_operations`/`dumps_operations` bridging YAML/JSON schemas with the Python dataclasses while rejecting unsupported file-based fields.
 - Expanded tests with `test_io.py`, `test_operations_io.py`, and import smoke checks plus refreshed README quickstart documenting the new workflow.
 - Confirmed coverage by rebuilding the extension with `maturin develop` and running `pytest` against the augmented suite.
+
+update 07
+- Extended `MarkdownDocument.write_in_place` with a keyword-only `backup` flag that snapshots the current file before atomic replacement to satisfy the safety guarantees in the spec.
+- Added Rust-side backup helper that copies to a `.bak` sibling and enforced existence checks to surface `IoError` when the backing file is missing.
+- Augmented `test_io.py` with coverage proving backups preserve the original content alongside atomic writes, and re-ran the full `maturin develop --release` + `pytest` flow successfully.
