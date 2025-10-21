@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 md-splice-lib = { path = "../md-splice-lib" }
 pyo3 = { version = "0.21", features = ["extension-module"] }
+serde_yaml = "0.9"
 
 [package.metadata.maturin]
 name = "md_splice._native"
