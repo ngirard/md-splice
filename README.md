@@ -12,6 +12,7 @@ A command-line tool for precise, AST-aware insertion, replacement, deletion, and
 * **Heading section logic**: Intelligently handles insertions relative to a heading, correctly identifying the "section" of content that belongs to it.
 * **Safe file handling**: Performs atomic in-place writes to prevent file corruption on error. Can also write to a new file or standard output.
 * **Multi-operation transactions**: Execute a sequence of inserts, replacements, and deletes atomically with a single command.
+* **Frontmatter-aware metadata editing**: Read, write, or delete YAML/TOML frontmatter, either directly through dedicated subcommands or as part of transactional `apply` workflows.
 
 ## Installation
 
@@ -29,9 +30,9 @@ cargo install --git https://github.com/ngirard/md-splice.git
 
 ## Multi-operation transactions with `apply`
 
-Complex document updates often require multiple coordinated inserts, replacements, and deletes. Running each command
+Complex document updates often require multiple coordinated inserts, replacements, deletes, or metadata edits. Running each command
 individually is fragile and inefficient because selectors must be recomputed after every modification. The `apply`
-subcommand solves this by accepting a list of operations, applying them against the Markdown AST in memory, and only
+subcommand solves this by accepting a list of operations, applying them against the Markdown AST and frontmatter in memory, and only
 writing the file if every operation succeeds.
 
 Key advantages:
@@ -42,6 +43,8 @@ Key advantages:
 
 Operations can be provided through `--operations-file <PATH>` (supports JSON or YAML and accepts `-` for stdin) or inline
 via `--operations '<JSON>'`. The CLI automatically detects JSON vs. YAML when reading from a file.
+
+Frontmatter operations (`set_frontmatter`, `delete_frontmatter`, and `replace_frontmatter`) follow the same YAML parsing rules as the standalone `frontmatter` subcommands, so values can come from inline YAML or external files. These operations can be freely mixed with body edits inside a single transaction while preserving atomicity.
 
 Example operations file (`changes.yaml`):
 
@@ -97,6 +100,83 @@ Operation variants accept additional fields:
 
 See [`goal-transactions/Transactions-specification.md`](goal-transactions/Transactions-specification.md) for the complete
 schema, examples, and behavioral guarantees.
+
+## Frontmatter operations
+
+`md-splice` automatically detects YAML (`---`) and TOML (`+++`) frontmatter blocks at the top of a Markdown file, preserving the original format when metadata is updated. Keys accept dot and array notation such as `author.name` or `reviewers[0].email`, and nested maps are created on demand when writing values.
+
+### Read metadata with `frontmatter get`
+
+Use `md-splice frontmatter get` to print metadata without touching the Markdown body. Omit `--key` to render the entire frontmatter block, or provide a path to drill into a nested value.
+
+```sh
+md-splice --file spec.md frontmatter get --key status
+md-splice --file spec.md frontmatter get --key reviewers[0].email --output-format json
+md-splice --file spec.md frontmatter get --output-format yaml
+```
+
+The `--output-format` flag controls how the result is rendered (`string`, `json`, or `yaml`). Complex structures default to YAML even when `string` is selected.
+
+### Write metadata with `frontmatter set`
+
+Use `md-splice frontmatter set --key <PATH>` with either `--value <YAML>` or `--value-file <PATH>` to create or update metadata. Values are parsed as YAML, so native types (numbers, booleans, arrays, objects) are preserved. When creating a new frontmatter block, the `--format` flag selects between YAML and TOML; otherwise the existing format is reused.
+
+```sh
+# Inline YAML value
+md-splice --file spec.md frontmatter set --key status --value published
+
+# Nested update sourced from a file
+md-splice --file spec.md frontmatter set --key reviewers[0] --value-file reviewer.yaml
+
+# Create frontmatter from scratch in TOML
+md-splice --file empty.md frontmatter set --key title --value "Launch Plan" --format toml
+```
+
+Provide `--value-file -` to read the value from standard input, which is useful when another tool streams YAML to `md-splice`.
+
+### Remove metadata with `frontmatter delete`
+
+Use `md-splice frontmatter delete --key <PATH>` to remove keys or array elements. Attempting to delete a missing key results in an error, keeping the frontmatter unchanged. Empty frontmatter blocks are automatically removed from the document.
+
+```sh
+md-splice --file spec.md frontmatter delete --key draft_notes
+md-splice --file spec.md frontmatter delete --key reviewers[1]
+```
+
+### Frontmatter edits in transactions
+
+Transactions support three metadata operations:
+
+* `set_frontmatter` — assign or overwrite a value at the provided key path.
+* `delete_frontmatter` — remove a key or array index, failing if it does not exist.
+* `replace_frontmatter` — swap the entire frontmatter block with new content.
+
+These operations accept inline YAML via `value` / `content` fields or external files (`value_file` / `content_file`), matching the CLI behavior.
+
+```yaml
+# approve.yaml
+- op: set_frontmatter
+  comment: "Mark the spec as approved"
+  key: status
+  value: approved
+- op: set_frontmatter
+  comment: "Capture the approval date"
+  key: last_updated
+  value: 2025-10-21
+- op: delete_frontmatter
+  comment: "Drop obsolete deadline metadata"
+  key: review_deadline
+- op: insert
+  comment: "Append an approval notice to the Summary section"
+  selector:
+    select_type: h2
+    select_contains: Summary
+  position: append_child
+  content: |
+    > **Approved:** This specification was approved on 2025-10-21.
+```
+
+Run `md-splice --file spec.md apply --operations-file approve.yaml` to apply all updates atomically. If any step fails—such as attempting to delete a missing key—the Markdown body and frontmatter remain untouched.
 
 ## Scoped and Range-Based Selections
 
@@ -173,7 +253,7 @@ md-splice --file <PATH> [COMMAND] [OPTIONS]
 ```
 
 * `--file <PATH>`: The Markdown file to modify.
-* `[COMMAND]`: One of `insert`, `replace`, `delete` (alias: `remove`), `get`, or `apply`.
+* `[COMMAND]`: One of `insert`, `replace`, `delete` (alias: `remove`), `get`, `frontmatter`, or `apply`.
 * `[OPTIONS]`: Selector flags, content inputs, and command-specific options.
 
 When using `apply`, the selector and content options come from a structured operations file (JSON or YAML) or inline JSON. The command reads all operations, applies them to the in-memory Markdown AST, and only writes the result after every operation has succeeded.
@@ -597,6 +677,23 @@ Options:
       --section                 When selecting a heading, get its entire section
       --separator <STRING>      Separator to use between results with --select-all [default: "\n"]
 ```
+
+#### `frontmatter`
+
+Inspect or modify the document frontmatter without touching the Markdown body.
+
+```
+Usage: md-splice frontmatter <COMMAND> [OPTIONS]
+
+Commands:
+  get     Read metadata values from the frontmatter block
+  set     Create or update frontmatter keys
+  delete  Remove frontmatter keys or array elements
+```
+
+`md-splice` automatically preserves the existing frontmatter format (YAML or TOML). When creating a new block, use `--format yaml|toml` with `frontmatter set` to choose the delimiter style.
+
+`frontmatter get` accepts an optional `--key` (dot and array notation) and `--output-format` (`string`, `json`, or `yaml`). `frontmatter set` requires `--key` alongside either `--value <YAML>` or `--value-file <PATH>` (use `-` to read from stdin). `frontmatter delete` removes the specified key and deletes the entire block automatically when it becomes empty.
 
 #### `apply`
 

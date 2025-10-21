@@ -22,3 +22,9 @@
 - Added reusable helpers for setting, deleting, and replacing frontmatter so both the CLI and transaction engine share validation/serialization logic.
 - Expanded `apply` integration tests to cover mixed frontmatter/body changes, error rollback guarantees, and format switching for replacement operations.
 - Next: move to Phase 5 to update documentation, CLI help text, and run final polish passes before release.
+
+## update 05
+- Completed Phase 5 (Documentation & Finalization) by adding comprehensive README coverage for direct frontmatter commands, transactional operations, and CLI reference details.
+- Updated user guidance to reflect YAML/TOML preservation, key notation, value sourcing, and atomic failure behavior for metadata workflows.
+- Confirmed command listings now surface the `frontmatter` namespace so end-users can discover and learn the new capabilities in one place.
+- Status: Frontmatter support is fully delivered and ready for release.
