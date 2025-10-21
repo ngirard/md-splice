@@ -28,6 +28,9 @@ pub enum Command {
     Insert(ModificationArgs),
     /// Replace a Markdown node with new content.
     Replace(ModificationArgs),
+    /// Delete a Markdown node or section.
+    #[command(alias = "remove")]
+    Delete(DeleteArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -68,6 +71,32 @@ pub struct ModificationArgs {
     /// Position for the 'insert' operation.
     #[arg(short, long, value_enum, default_value_t = InsertPosition::After)]
     pub position: InsertPosition,
+}
+
+/// Arguments for the `delete` command.
+#[derive(Parser, Debug)]
+pub struct DeleteArgs {
+    // --- Node Selection ---
+    /// Select node by type (e.g., 'p', 'h1', 'list', 'table').
+    #[arg(long, value_name = "TYPE")]
+    pub select_type: Option<String>,
+
+    /// Select node by its text content (fixed string).
+    #[arg(long, value_name = "TEXT")]
+    pub select_contains: Option<String>,
+
+    /// Select node by its text content (regex pattern).
+    #[arg(long, value_name = "REGEX")]
+    pub select_regex: Option<String>,
+
+    /// Select the Nth matching node (1-indexed). Default is 1.
+    #[arg(long, value_name = "N", default_value_t = 1)]
+    pub select_ordinal: usize,
+
+    // --- Delete-specific options ---
+    /// When deleting a heading, also delete its entire section.
+    #[arg(long, requires = "select_type")]
+    pub section: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
