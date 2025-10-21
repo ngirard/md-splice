@@ -9,6 +9,7 @@ pub mod transaction;
 use crate::cli::{ApplyArgs, Cli, Command, DeleteArgs, GetArgs, ModificationArgs};
 use crate::error::SpliceError;
 use crate::locator::{locate, locate_all, FoundNode, Selector};
+use crate::transaction::{Operation, ReplaceOperation, Selector as TransactionSelector};
 use crate::splicer::{
     delete, delete_list_item, delete_section, find_heading_section_end, get_heading_level, insert,
     insert_list_item, replace, replace_list_item,
@@ -21,6 +22,7 @@ use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
 use regex::Regex;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::path::PathBuf;
 
 /// The main entry point for the application logic.
 pub fn run() -> anyhow::Result<()> {
@@ -160,6 +162,95 @@ fn process_apply_command(args: ApplyArgs) -> anyhow::Result<()> {
     let _ = (operations_data, dry_run, diff);
 
     Err(anyhow!("The apply command is not implemented yet."))
+}
+
+#[allow(dead_code)]
+fn process_apply(doc_blocks: &mut Vec<Block>, operations: Vec<Operation>) -> anyhow::Result<()> {
+    for operation in operations {
+        match operation {
+            Operation::Replace(replace_op) => apply_replace_operation(doc_blocks, replace_op)?,
+            Operation::Insert(_) => {
+                anyhow::bail!("insert operation is not implemented yet");
+            }
+            Operation::Delete(_) => {
+                anyhow::bail!("delete operation is not implemented yet");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn apply_replace_operation(
+    doc_blocks: &mut Vec<Block>,
+    operation: ReplaceOperation,
+) -> anyhow::Result<()> {
+    let selector = build_locator_selector(&operation.selector)?;
+    let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
+
+    if is_ambiguous {
+        log::warn!(
+            "Warning: Selector matched multiple nodes. Operation was applied to the first match only."
+        );
+    }
+
+    let content_str = resolve_operation_content(operation.content, operation.content_file)?;
+    let new_content_doc = parse_markdown(MarkdownParserState::default(), &content_str)
+        .map_err(|e| anyhow!("Failed to parse content markdown: {}", e))?;
+    let new_blocks = new_content_doc.blocks;
+
+    match found_node {
+        FoundNode::Block { index, .. } => {
+            replace(doc_blocks, index, new_blocks);
+        }
+        FoundNode::ListItem {
+            block_index,
+            item_index,
+            ..
+        } => {
+            replace_list_item(doc_blocks, block_index, item_index, new_blocks)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn build_locator_selector(selector: &TransactionSelector) -> anyhow::Result<Selector> {
+    let select_regex = if let Some(pattern) = &selector.select_regex {
+        Some(
+            Regex::new(pattern)
+                .with_context(|| "Invalid regex pattern in operation selector".to_string())?,
+        )
+    } else {
+        None
+    };
+
+    Ok(Selector {
+        select_type: selector.select_type.clone(),
+        select_contains: selector.select_contains.clone(),
+        select_regex,
+        select_ordinal: selector.select_ordinal,
+    })
+}
+
+#[allow(dead_code)]
+fn resolve_operation_content(
+    content: Option<String>,
+    content_file: Option<PathBuf>,
+) -> anyhow::Result<String> {
+    match (content, content_file) {
+        (Some(inline), None) => Ok(inline),
+        (None, Some(path)) => fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read content file: {}", path.display())),
+        (Some(_), Some(_)) => Err(anyhow!(
+            "Operation cannot specify both inline content and a content_file"
+        )),
+        (None, None) => Err(anyhow!(
+            "Operation must provide inline content or a content_file"
+        )),
+    }
 }
 
 fn process_insert_or_replace(
@@ -419,4 +510,44 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transaction::{Operation, ReplaceOperation, Selector as TxSelector};
+    use markdown_ppp::ast::Document;
+    use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
+    use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
+
+    #[test]
+    fn process_apply_replaces_matching_block() {
+        let initial = "# Project Tasks\n\nStatus: In Progress\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+
+        let operations = vec![Operation::Replace(ReplaceOperation {
+            selector: TxSelector {
+                select_type: None,
+                select_contains: Some("Status: In Progress".to_string()),
+                select_regex: None,
+                select_ordinal: 1,
+            },
+            comment: None,
+            content: Some("Status: **Complete**".to_string()),
+            content_file: None,
+        })];
+
+        process_apply(&mut blocks, operations).expect("replace operation succeeds");
+
+        let rendered = render_markdown(
+            &Document {
+                blocks: blocks.clone(),
+            },
+            PrinterConfig::default(),
+        );
+
+        assert!(rendered.contains("Status: **Complete**"));
+        assert!(!rendered.contains("Status: In Progress"));
+    }
 }
