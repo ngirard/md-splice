@@ -2,3 +2,4 @@ target
 *_repo_snapshot.md
 
 /devel
+.venv/

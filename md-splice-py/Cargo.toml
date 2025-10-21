@@ -10,10 +10,12 @@ crate-type = ["cdylib"]
 [dependencies]
 md-splice-lib = { path = "../md-splice-lib" }
 pyo3 = { version = "0.21", features = ["extension-module"] }
+serde_json = "1.0"
 serde_yaml = "0.9"
 markdown-ppp = { version = "2.7.1", features = ["ast-serde", "parser", "printer", "serde"] }
 regex = "1.12"
 similar = "2.6"
+tempfile = "3.12"
 
 [package.metadata.maturin]
 name = "md_splice._native"

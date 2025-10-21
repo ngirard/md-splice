@@ -1,4 +1,9 @@
-use std::str::FromStr;
+use std::{
+    fs,
+    io::{self, Write},
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use markdown_ppp::ast::{Block, Document, HeadingKind, SetextHeading};
 use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
@@ -24,14 +29,17 @@ use pyo3::{
     Bound,
 };
 use regex::Regex;
+use serde_json;
 use serde_yaml::{Mapping as YamlMapping, Number as YamlNumber, Value as YamlValue};
 use similar::TextDiff;
+use tempfile::Builder as TempFileBuilder;
 
 create_exception!(_native, MdSpliceError, PyException);
 
 #[pyclass(name = "MarkdownDocument", module = "md_splice")]
 pub struct PyMarkdownDocument {
     inner: CoreMarkdownDocument,
+    source_path: Option<PathBuf>,
 }
 
 #[pymethods]
@@ -39,11 +47,42 @@ impl PyMarkdownDocument {
     #[classmethod]
     pub fn from_string(_cls: &Bound<'_, PyType>, markdown: &str) -> PyResult<Self> {
         let document = CoreMarkdownDocument::from_str(markdown).map_err(map_splice_error)?;
-        Ok(Self { inner: document })
+        Ok(Self {
+            inner: document,
+            source_path: None,
+        })
+    }
+
+    #[classmethod]
+    pub fn from_file(_cls: &Bound<'_, PyType>, path: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let path_buf: PathBuf = path.extract()?;
+        let content = fs::read_to_string(&path_buf).map_err(|err| map_io_error(err))?;
+        let document = CoreMarkdownDocument::from_str(&content).map_err(map_splice_error)?;
+
+        Ok(Self {
+            inner: document,
+            source_path: Some(path_buf),
+        })
     }
 
     pub fn render(&self) -> PyResult<String> {
         Ok(self.inner.render())
+    }
+
+    pub fn write_in_place(&self) -> PyResult<()> {
+        let Some(path) = &self.source_path else {
+            return Err(map_splice_error(SpliceError::Io(
+                "Document has no associated path; call write_to() instead.".to_string(),
+            )));
+        };
+        let path = path.clone();
+        write_atomic(&path, &self.inner.render())?;
+        Ok(())
+    }
+
+    pub fn write_to(&self, path: &Bound<'_, PyAny>) -> PyResult<()> {
+        let path_buf: PathBuf = path.extract()?;
+        write_to_path(&path_buf, &self.inner.render())
     }
 
     #[pyo3(signature = (ops, *, warn_on_ambiguity=true))]
@@ -164,6 +203,7 @@ impl PyMarkdownDocument {
     pub fn clone(&self) -> PyResult<Self> {
         Ok(Self {
             inner: self.inner.clone(),
+            source_path: self.source_path.clone(),
         })
     }
 }
@@ -174,6 +214,8 @@ fn _native(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<PyMarkdownDocument>()?;
     module.add("MdSpliceError", py.get_type_bound::<MdSpliceError>())?;
     module.add_function(pyo3::wrap_pyfunction!(diff_unified, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(loads_operations, module)?)?;
+    module.add_function(pyo3::wrap_pyfunction!(dumps_operations, module)?)?;
     Ok(())
 }
 
@@ -682,4 +724,498 @@ fn diff_unified(before: &str, after: &str, fromfile: &str, tofile: &str) -> PyRe
         .header(fromfile, tofile)
         .to_string();
     Ok(diff)
+}
+
+#[pyfunction]
+#[pyo3(signature = (text, *, format=None))]
+fn loads_operations(py: Python<'_>, text: &str, format: Option<&str>) -> PyResult<PyObject> {
+    let operations = parse_operations(text, format).map_err(map_splice_error)?;
+    let types_module = PyModule::import_bound(py, "md_splice.types")?;
+    let py_list = PyList::empty_bound(py);
+
+    for operation in &operations {
+        let py_op = tx_operation_to_py(py, &types_module, operation)?;
+        py_list.append(py_op)?;
+    }
+
+    Ok(py_list.into_py(py))
+}
+
+#[pyfunction]
+#[pyo3(signature = (operations, *, format="yaml"))]
+fn dumps_operations(
+    py: Python<'_>,
+    operations: &Bound<'_, PyAny>,
+    format: &str,
+) -> PyResult<String> {
+    let tx_operations = py_operations_to_rust(py, operations)?;
+    let yaml_operations = tx_operations
+        .iter()
+        .map(tx_operation_to_yaml_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(map_splice_error)?;
+    let normalized = format.to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "yaml" => serde_yaml::to_string(&yaml_operations)
+            .map_err(|err| map_splice_error(SpliceError::OperationParse(err.to_string()))),
+        "json" => serde_json::to_string_pretty(&yaml_operations)
+            .map_err(|err| map_splice_error(SpliceError::OperationParse(err.to_string()))),
+        other => Err(PyValueError::new_err(format!(
+            "Unsupported operations format: {other}"
+        ))),
+    }
+}
+
+fn parse_operations(text: &str, format: Option<&str>) -> Result<Vec<TxOperation>, SpliceError> {
+    let normalized = format.map(|value| value.to_ascii_lowercase());
+    match normalized.as_deref() {
+        Some("yaml") => serde_yaml::from_str(text)
+            .map_err(|err| SpliceError::OperationParse(err.to_string())),
+        Some("json") => serde_json::from_str(text)
+            .map_err(|err| SpliceError::OperationParse(err.to_string())),
+        Some(other) => Err(SpliceError::OperationParse(format!(
+            "Unsupported operations format: {other}"
+        ))),
+        None => match serde_yaml::from_str(text) {
+            Ok(value) => Ok(value),
+            Err(yaml_err) => serde_json::from_str(text).map_err(|json_err| {
+                SpliceError::OperationParse(format!(
+                    "Failed to parse operations as YAML ({yaml_err}). Attempt to parse as JSON also failed ({json_err})."
+                ))
+            }),
+        },
+    }
+}
+
+fn tx_operation_to_py(
+    py: Python<'_>,
+    types_module: &Bound<'_, PyModule>,
+    operation: &TxOperation,
+) -> PyResult<PyObject> {
+    match operation {
+        TxOperation::Insert(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")
+                .map_err(map_splice_error)?;
+            ensure_operation_field_absent(op.content_file.as_ref(), "content_file")
+                .map_err(map_splice_error)?;
+
+            let selector = tx_selector_to_py(py, types_module, &op.selector)?;
+            let class = types_module
+                .getattr("InsertOperation")?
+                .downcast_into::<PyType>()?;
+            let kwargs = PyDict::new_bound(py);
+            kwargs.set_item("selector", selector)?;
+            if let Some(content) = &op.content {
+                kwargs.set_item("content", content)?;
+            }
+            let position = insert_position_to_py(py, types_module, op.position)?;
+            kwargs.set_item("position", position)?;
+            let instance = class.call((), Some(&kwargs))?;
+            Ok(instance.into_py(py))
+        }
+        TxOperation::Replace(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")
+                .map_err(map_splice_error)?;
+            ensure_operation_field_absent(op.content_file.as_ref(), "content_file")
+                .map_err(map_splice_error)?;
+
+            let selector = tx_selector_to_py(py, types_module, &op.selector)?;
+            let class = types_module
+                .getattr("ReplaceOperation")?
+                .downcast_into::<PyType>()?;
+            let kwargs = PyDict::new_bound(py);
+            kwargs.set_item("selector", selector)?;
+            if let Some(content) = &op.content {
+                kwargs.set_item("content", content)?;
+            }
+            if let Some(until) = &op.until {
+                let until_selector = tx_selector_to_py(py, types_module, until)?;
+                kwargs.set_item("until", until_selector)?;
+            }
+            let instance = class.call((), Some(&kwargs))?;
+            Ok(instance.into_py(py))
+        }
+        TxOperation::Delete(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")
+                .map_err(map_splice_error)?;
+
+            let selector = tx_selector_to_py(py, types_module, &op.selector)?;
+            let class = types_module
+                .getattr("DeleteOperation")?
+                .downcast_into::<PyType>()?;
+            let kwargs = PyDict::new_bound(py);
+            kwargs.set_item("selector", selector)?;
+            kwargs.set_item("section", op.section)?;
+            if let Some(until) = &op.until {
+                let until_selector = tx_selector_to_py(py, types_module, until)?;
+                kwargs.set_item("until", until_selector)?;
+            }
+            let instance = class.call((), Some(&kwargs))?;
+            Ok(instance.into_py(py))
+        }
+        TxOperation::SetFrontmatter(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")
+                .map_err(map_splice_error)?;
+            ensure_operation_field_absent(op.value_file.as_ref(), "value_file")
+                .map_err(map_splice_error)?;
+
+            let class = types_module
+                .getattr("SetFrontmatterOperation")?
+                .downcast_into::<PyType>()?;
+            let kwargs = PyDict::new_bound(py);
+            kwargs.set_item("key", &op.key)?;
+            let value = match &op.value {
+                Some(value) => yaml_value_to_py(py, value)?,
+                None => py.None().into_py(py),
+            };
+            kwargs.set_item("value", value)?;
+            if let Some(format) = op.format {
+                let format_value = frontmatter_format_to_py(py, types_module, format)?;
+                kwargs.set_item("format", format_value)?;
+            }
+            let instance = class.call((), Some(&kwargs))?;
+            Ok(instance.into_py(py))
+        }
+        TxOperation::DeleteFrontmatter(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")
+                .map_err(map_splice_error)?;
+
+            let class = types_module
+                .getattr("DeleteFrontmatterOperation")?
+                .downcast_into::<PyType>()?;
+            let kwargs = PyDict::new_bound(py);
+            kwargs.set_item("key", &op.key)?;
+            let instance = class.call((), Some(&kwargs))?;
+            Ok(instance.into_py(py))
+        }
+        TxOperation::ReplaceFrontmatter(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")
+                .map_err(map_splice_error)?;
+            ensure_operation_field_absent(op.content_file.as_ref(), "content_file")
+                .map_err(map_splice_error)?;
+
+            let class = types_module
+                .getattr("ReplaceFrontmatterOperation")?
+                .downcast_into::<PyType>()?;
+            let kwargs = PyDict::new_bound(py);
+            let content = match &op.content {
+                Some(value) => yaml_value_to_py(py, value)?,
+                None => py.None().into_py(py),
+            };
+            kwargs.set_item("content", content)?;
+            if let Some(format) = op.format {
+                let format_value = frontmatter_format_to_py(py, types_module, format)?;
+                kwargs.set_item("format", format_value)?;
+            }
+            let instance = class.call((), Some(&kwargs))?;
+            Ok(instance.into_py(py))
+        }
+    }
+}
+
+fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, SpliceError> {
+    let mut mapping = YamlMapping::new();
+
+    match operation {
+        TxOperation::Insert(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
+            ensure_operation_field_absent(op.content_file.as_ref(), "content_file")?;
+
+            mapping.insert(
+                YamlValue::String("op".to_string()),
+                YamlValue::String("insert".to_string()),
+            );
+            mapping.insert(
+                YamlValue::String("selector".to_string()),
+                tx_selector_to_yaml_value(&op.selector),
+            );
+            if let Some(content) = &op.content {
+                mapping.insert(
+                    YamlValue::String("content".to_string()),
+                    YamlValue::String(content.clone()),
+                );
+            }
+            if op.position != TxInsertPosition::After {
+                mapping.insert(
+                    YamlValue::String("position".to_string()),
+                    YamlValue::String(insert_position_to_str(op.position).to_string()),
+                );
+            }
+        }
+        TxOperation::Replace(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
+            ensure_operation_field_absent(op.content_file.as_ref(), "content_file")?;
+
+            mapping.insert(
+                YamlValue::String("op".to_string()),
+                YamlValue::String("replace".to_string()),
+            );
+            mapping.insert(
+                YamlValue::String("selector".to_string()),
+                tx_selector_to_yaml_value(&op.selector),
+            );
+            if let Some(content) = &op.content {
+                mapping.insert(
+                    YamlValue::String("content".to_string()),
+                    YamlValue::String(content.clone()),
+                );
+            }
+            if let Some(until) = &op.until {
+                mapping.insert(
+                    YamlValue::String("until".to_string()),
+                    tx_selector_to_yaml_value(until),
+                );
+            }
+        }
+        TxOperation::Delete(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
+
+            mapping.insert(
+                YamlValue::String("op".to_string()),
+                YamlValue::String("delete".to_string()),
+            );
+            mapping.insert(
+                YamlValue::String("selector".to_string()),
+                tx_selector_to_yaml_value(&op.selector),
+            );
+            if op.section {
+                mapping.insert(
+                    YamlValue::String("section".to_string()),
+                    YamlValue::Bool(true),
+                );
+            }
+            if let Some(until) = &op.until {
+                mapping.insert(
+                    YamlValue::String("until".to_string()),
+                    tx_selector_to_yaml_value(until),
+                );
+            }
+        }
+        TxOperation::SetFrontmatter(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
+            ensure_operation_field_absent(op.value_file.as_ref(), "value_file")?;
+
+            mapping.insert(
+                YamlValue::String("op".to_string()),
+                YamlValue::String("set_frontmatter".to_string()),
+            );
+            mapping.insert(
+                YamlValue::String("key".to_string()),
+                YamlValue::String(op.key.clone()),
+            );
+            let value = op.value.as_ref().cloned().unwrap_or(YamlValue::Null);
+            mapping.insert(YamlValue::String("value".to_string()), value);
+            if let Some(format) = op.format {
+                mapping.insert(
+                    YamlValue::String("format".to_string()),
+                    YamlValue::String(frontmatter_format_to_str(format).to_string()),
+                );
+            }
+        }
+        TxOperation::DeleteFrontmatter(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
+
+            mapping.insert(
+                YamlValue::String("op".to_string()),
+                YamlValue::String("delete_frontmatter".to_string()),
+            );
+            mapping.insert(
+                YamlValue::String("key".to_string()),
+                YamlValue::String(op.key.clone()),
+            );
+        }
+        TxOperation::ReplaceFrontmatter(op) => {
+            ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
+            ensure_operation_field_absent(op.content_file.as_ref(), "content_file")?;
+
+            mapping.insert(
+                YamlValue::String("op".to_string()),
+                YamlValue::String("replace_frontmatter".to_string()),
+            );
+            let content = op.content.as_ref().cloned().unwrap_or(YamlValue::Null);
+            mapping.insert(YamlValue::String("content".to_string()), content);
+            if let Some(format) = op.format {
+                mapping.insert(
+                    YamlValue::String("format".to_string()),
+                    YamlValue::String(frontmatter_format_to_str(format).to_string()),
+                );
+            }
+        }
+    }
+
+    Ok(YamlValue::Mapping(mapping))
+}
+
+fn tx_selector_to_yaml_value(selector: &TxSelector) -> YamlValue {
+    let mut mapping = YamlMapping::new();
+
+    if let Some(select_type) = &selector.select_type {
+        mapping.insert(
+            YamlValue::String("select_type".to_string()),
+            YamlValue::String(select_type.clone()),
+        );
+    }
+    if let Some(select_contains) = &selector.select_contains {
+        mapping.insert(
+            YamlValue::String("select_contains".to_string()),
+            YamlValue::String(select_contains.clone()),
+        );
+    }
+    if let Some(select_regex) = &selector.select_regex {
+        mapping.insert(
+            YamlValue::String("select_regex".to_string()),
+            YamlValue::String(select_regex.clone()),
+        );
+    }
+    if selector.select_ordinal != 1 {
+        mapping.insert(
+            YamlValue::String("select_ordinal".to_string()),
+            YamlValue::Number(YamlNumber::from(selector.select_ordinal as i64)),
+        );
+    }
+    if let Some(after) = &selector.after {
+        mapping.insert(
+            YamlValue::String("after".to_string()),
+            tx_selector_to_yaml_value(after),
+        );
+    }
+    if let Some(within) = &selector.within {
+        mapping.insert(
+            YamlValue::String("within".to_string()),
+            tx_selector_to_yaml_value(within),
+        );
+    }
+
+    YamlValue::Mapping(mapping)
+}
+
+fn tx_selector_to_py(
+    py: Python<'_>,
+    types_module: &Bound<'_, PyModule>,
+    selector: &TxSelector,
+) -> PyResult<PyObject> {
+    let class = types_module
+        .getattr("Selector")?
+        .downcast_into::<PyType>()?;
+    let kwargs = PyDict::new_bound(py);
+
+    if let Some(select_type) = &selector.select_type {
+        kwargs.set_item("select_type", select_type)?;
+    }
+    if let Some(select_contains) = &selector.select_contains {
+        kwargs.set_item("select_contains", select_contains)?;
+    }
+    if let Some(select_regex) = &selector.select_regex {
+        kwargs.set_item("select_regex", select_regex)?;
+    }
+    if selector.select_ordinal != 1 {
+        kwargs.set_item("select_ordinal", selector.select_ordinal)?;
+    }
+    if let Some(after) = &selector.after {
+        let nested = tx_selector_to_py(py, types_module, after)?;
+        kwargs.set_item("after", nested)?;
+    }
+    if let Some(within) = &selector.within {
+        let nested = tx_selector_to_py(py, types_module, within)?;
+        kwargs.set_item("within", nested)?;
+    }
+
+    let instance = class.call((), Some(&kwargs))?;
+    Ok(instance.into_py(py))
+}
+
+fn insert_position_to_py(
+    py: Python<'_>,
+    types_module: &Bound<'_, PyModule>,
+    position: TxInsertPosition,
+) -> PyResult<PyObject> {
+    let enum_class = types_module.getattr("InsertPosition")?;
+    let variant_name = match position {
+        TxInsertPosition::Before => "BEFORE",
+        TxInsertPosition::After => "AFTER",
+        TxInsertPosition::PrependChild => "PREPEND_CHILD",
+        TxInsertPosition::AppendChild => "APPEND_CHILD",
+    };
+    Ok(enum_class.getattr(variant_name)?.into_py(py))
+}
+
+fn insert_position_to_str(position: TxInsertPosition) -> &'static str {
+    match position {
+        TxInsertPosition::Before => "before",
+        TxInsertPosition::After => "after",
+        TxInsertPosition::PrependChild => "prepend_child",
+        TxInsertPosition::AppendChild => "append_child",
+    }
+}
+
+fn frontmatter_format_to_py(
+    py: Python<'_>,
+    types_module: &Bound<'_, PyModule>,
+    format: FrontmatterFormat,
+) -> PyResult<PyObject> {
+    let enum_class = types_module.getattr("FrontmatterFormat")?;
+    let variant_name = match format {
+        FrontmatterFormat::Yaml => "YAML",
+        FrontmatterFormat::Toml => "TOML",
+    };
+    Ok(enum_class.getattr(variant_name)?.into_py(py))
+}
+
+fn frontmatter_format_to_str(format: FrontmatterFormat) -> &'static str {
+    match format {
+        FrontmatterFormat::Yaml => "yaml",
+        FrontmatterFormat::Toml => "toml",
+    }
+}
+
+fn ensure_operation_field_absent<T>(
+    field: Option<&T>,
+    field_name: &str,
+) -> Result<(), SpliceError> {
+    if field.is_some() {
+        Err(unsupported_operation_field(field_name))
+    } else {
+        Ok(())
+    }
+}
+
+fn unsupported_operation_field(field: &str) -> SpliceError {
+    SpliceError::OperationParse(format!(
+        "Operations containing `{}` are not supported by the Python API.",
+        field
+    ))
+}
+
+fn write_to_path(path: &Path, content: &str) -> PyResult<()> {
+    fs::write(path, content).map_err(|err| map_io_error(err))?;
+    Ok(())
+}
+
+fn write_atomic(path: &Path, content: &str) -> PyResult<()> {
+    let parent = path.parent().ok_or_else(|| {
+        map_splice_error(SpliceError::Io(format!(
+            "Cannot determine parent directory of {}",
+            path.display()
+        )))
+    })?;
+
+    let mut temp_file = TempFileBuilder::new()
+        .prefix(".md-splice-")
+        .suffix(".tmp")
+        .tempfile_in(parent)
+        .map_err(|err| map_io_error(io::Error::new(io::ErrorKind::Other, err.to_string())))?;
+
+    temp_file
+        .write_all(content.as_bytes())
+        .map_err(|err| map_io_error(err))?;
+    temp_file.flush().map_err(|err| map_io_error(err))?;
+    temp_file
+        .persist(path)
+        .map_err(|err| map_io_error(err.error))?;
+    Ok(())
+}
+
+fn map_io_error(err: io::Error) -> PyErr {
+    map_splice_error(SpliceError::Io(err.to_string()))
 }

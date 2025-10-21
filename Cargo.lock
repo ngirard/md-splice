@@ -621,8 +621,10 @@ dependencies = [
  "md-splice-lib",
  "pyo3",
  "regex",
+ "serde_json",
  "serde_yaml",
  "similar",
+ "tempfile",
 ]
 
 [[package]]
