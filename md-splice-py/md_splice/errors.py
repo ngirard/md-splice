@@ -1,8 +1,17 @@
-"""Python exception hierarchy for md-splice."""
+"""Python exception hierarchy for the md-splice bindings.
+
+Each exception mirrors a Rust ``SpliceError`` variant so Python callers can
+write precise ``except`` clauses. The base :class:`MdSpliceError` is surfaced
+from the native extension but documented here for discoverability.
+"""
 
 from __future__ import annotations
 
 from ._native import MdSpliceError
+
+MdSpliceError.__doc__ = (
+    "Base class for all exceptions raised by the md-splice Python bindings."
+)
 
 
 class NodeNotFoundError(MdSpliceError):

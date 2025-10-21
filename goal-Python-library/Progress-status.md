@@ -57,3 +57,8 @@ update 10
 - Expanded the Python README with sections covering transactional safety, preview/diff helpers, and operations schema interoperability for parity with the spec.
 - Enriched operation dataclass docstrings to describe range, section, and frontmatter behaviors consistent with the CLI schema.
 - Next: Audit remaining public APIs (e.g., module-level `__all__`, error classes) for docstring completeness and add changelog entries summarizing the Python bindings.
+
+update 11
+- Re-exported the full Python error hierarchy from `md_splice.__all__` and documented the base `MdSpliceError` so introspection exposes the spec-mandated exception surface.
+- Added a `CHANGELOG.md` that summarizes the Python binding capabilities delivered so far and codifies the Keep a Changelog structure for future releases.
+- Extended the import smoke tests to assert error docstrings and top-level availability, rerunning `maturin develop --manifest-path md-splice-py/Cargo.toml --release` followed by `.venv/bin/python -m pytest md-splice-py/tests` successfully.
