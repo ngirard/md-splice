@@ -77,3 +77,8 @@ update 14
 - Corrected `MarkdownDocument.write_to` to reuse the Rust atomic write helper so explicit path writes match the specification's durability guarantees.
 - Taught the atomic writer to tolerate relative target paths and added regression coverage confirming relative paths succeed without leaving the source association requirement behind.
 - Rebuilt the extension in a fresh virtualenv via `python -m maturin develop --manifest-path md-splice-py/Cargo.toml --release` and re-ran `pytest md-splice-py/tests` to ensure the new semantics stay green.
+
+update 15
+- Adjusted `write_in_place(backup=True)` to create `path~` siblings so backups match the specification instead of using `.bak` suffixes.
+- Updated the backup regression test and documentation/CHANGELOG to reflect the new naming convention.
+- Reconfirmed parity by rebuilding the extension in editable mode and running the full pytest suite.

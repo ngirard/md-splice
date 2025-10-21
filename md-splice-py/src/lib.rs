@@ -90,7 +90,7 @@ impl PyMarkdownDocument {
     /// Atomically write the document back to its source path.
     ///
     /// When ``backup`` is ``True`` the current on-disk file is first copied to
-    /// a ``.bak`` sibling before the atomic replace occurs. This mirrors the
+    /// a ``path~`` sibling before the atomic replace occurs. This mirrors the
     /// CLI's safety guarantees described in the specification.
     #[pyo3(signature = (*, backup=false))]
     pub fn write_in_place(&self, backup: bool) -> PyResult<()> {
@@ -1334,7 +1334,7 @@ fn create_backup(path: &Path) -> PyResult<PathBuf> {
     }
 
     let mut backup_name = path.as_os_str().to_os_string();
-    backup_name.push(".bak");
+    backup_name.push("~");
     let backup_path = PathBuf::from(backup_name);
 
     fs::copy(path, &backup_path).map_err(|err| map_io_error(err))?;

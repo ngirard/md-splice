@@ -79,7 +79,7 @@ def test_write_in_place_can_create_backup(tmp_path: Path) -> None:
 
     doc.write_in_place(backup=True)
 
-    backup_path = source_path.with_name(f"{source_path.name}.bak")
+    backup_path = source_path.with_name(f"{source_path.name}~")
     assert backup_path.exists()
     assert backup_path.read_text(encoding="utf-8") == original
 

@@ -48,7 +48,7 @@ Ambiguity warnings mirror the CLI: when a selector matches multiple nodes a
 `UserWarning` is emitted unless `warn_on_ambiguity=False`.
 
 Persisting edits uses atomic file replacement. `write_in_place(backup=True)` first
-creates a `.bak` sibling of the current file before atomically swapping in the new
+creates a `path~` sibling of the current file before atomically swapping in the new
 content, satisfying the safety guarantees described in the specification. Use
 `write_to(path)` to atomically write to a new location.
 
