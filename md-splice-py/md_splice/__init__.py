@@ -62,6 +62,7 @@ __all__ = [
     "DeleteFrontmatterOperation",
     "ReplaceFrontmatterOperation",
     "Operation",
+    "errors",
     "__version__",
 ]
 
