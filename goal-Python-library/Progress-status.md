@@ -46,3 +46,8 @@ update 08
 - Added regression tests in `test_get.py` covering case-insensitive, multiline, and dotall regex matches plus the unsupported flag failure path.
 - Rebuilt the extension via `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and reran `pytest md-splice-py/tests` to confirm the expanded suite passes.
 - Next: document the supported regex flags in the Python README and surface them in docstrings per the specification's regex notes.
+
+update 09
+- Documented the supported/unsupported regex flags in the Python README to guide users working with `Selector.select_regex`.
+- Expanded the `Selector` docstring to detail accepted `re` flags and the corresponding `InvalidRegexError` behavior.
+- Next: continue aligning documentation and docstrings with the remaining Specification sections (e.g., diff helpers, transaction semantics).

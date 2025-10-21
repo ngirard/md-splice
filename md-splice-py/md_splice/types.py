@@ -28,7 +28,16 @@ class InsertPosition(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class Selector:
-    """Criteria for locating Markdown nodes via the Rust core."""
+    """Criteria for locating Markdown nodes via the Rust core.
+
+    Regex selectors accept either pattern strings or compiled ``re.Pattern``
+    instances. The bridge honors ``re.IGNORECASE``, ``re.MULTILINE``, and
+    ``re.DOTALL`` flags exactly as Python applies them before handing the
+    pattern to Rust, and tolerates ``re.UNICODE`` (Python's default). Any other
+    flag (e.g. ``re.VERBOSE`` or ``re.ASCII``) raises
+    :class:`md_splice.errors.InvalidRegexError`, matching the limitations
+    described in ``goal-Python-library/Specification.md``.
+    """
 
     select_type: str | None = None
     select_contains: str | None = None
