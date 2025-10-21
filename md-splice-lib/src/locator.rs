@@ -108,7 +108,7 @@ fn find_section_end(blocks: &[Block], heading_index: usize, level: usize) -> usi
     end
 }
 
-fn apply_scope<'a>(blocks: &'a [Block], selector: &Selector) -> Result<Scope, SpliceError> {
+fn apply_scope(blocks: &[Block], selector: &Selector) -> Result<Scope, SpliceError> {
     if selector.after.is_some() && selector.within.is_some() {
         return Err(SpliceError::ConflictingScopeModifiers);
     }

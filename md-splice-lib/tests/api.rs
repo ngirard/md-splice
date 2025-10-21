@@ -3,6 +3,7 @@ use md_splice_lib::transaction::{
 };
 use md_splice_lib::MarkdownDocument;
 use serde_yaml::Value as YamlValue;
+use std::str::FromStr;
 
 #[test]
 fn load_document_from_string_and_render() {

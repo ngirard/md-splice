@@ -7,112 +7,172 @@ fn default_select_ordinal() -> usize {
     1
 }
 
-fn default_insert_position() -> InsertPosition {
-    InsertPosition::After
-}
-
 #[derive(Debug, Deserialize, PartialEq)]
+/// A single atomic mutation that can be applied to a [`MarkdownDocument`](crate::MarkdownDocument).
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Operation {
+    /// Insert content relative to a matched selector.
     Insert(InsertOperation),
+    /// Replace the matched selector (optionally spanning until another selector).
     Replace(ReplaceOperation),
+    /// Delete the matched selector (optionally spanning until another selector).
     Delete(DeleteOperation),
+    /// Assign or update a value within document frontmatter.
     SetFrontmatter(SetFrontmatterOperation),
+    /// Remove a key from document frontmatter.
     DeleteFrontmatter(DeleteFrontmatterOperation),
+    /// Replace the entire frontmatter block.
     ReplaceFrontmatter(ReplaceFrontmatterOperation),
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone)]
+/// Criteria describing a node to match in the Markdown AST.
 pub struct Selector {
     #[serde(default)]
+    /// Restricts matches to nodes of a given HTML-like element type (e.g., `h2`).
     pub select_type: Option<String>,
     #[serde(default)]
+    /// Restricts matches to nodes whose rendered text contains the provided substring.
     pub select_contains: Option<String>,
     #[serde(default)]
+    /// Restricts matches to nodes whose rendered text satisfies the provided regex.
     pub select_regex: Option<String>,
     #[serde(default = "default_select_ordinal")]
+    /// Selects the _n_th match (1-indexed) when multiple nodes satisfy the selector.
     pub select_ordinal: usize,
     #[serde(default)]
+    /// Narrows the search to nodes appearing after another selector.
     pub after: Option<Box<Selector>>,
     #[serde(default)]
+    /// Narrows the search to nodes contained within another selector's scope.
     pub within: Option<Box<Selector>>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+impl Default for Selector {
+    fn default() -> Self {
+        Self {
+            select_type: None,
+            select_contains: None,
+            select_regex: None,
+            select_ordinal: default_select_ordinal(),
+            after: None,
+            within: None,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+/// Describes where and how new content should be inserted relative to a selector.
 pub struct InsertOperation {
+    /// The selector that identifies the insertion anchor.
     pub selector: Selector,
     #[serde(default)]
+    /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
     #[serde(default)]
+    /// Inline Markdown content to insert.
     pub content: Option<String>,
     #[serde(default)]
+    /// Path to a file whose contents should be inserted.
     pub content_file: Option<PathBuf>,
-    #[serde(default = "default_insert_position")]
+    #[serde(default)]
+    /// Placement relative to the selector.
     pub position: InsertPosition,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+/// Describes a replacement of existing content matched by a selector.
 pub struct ReplaceOperation {
+    /// The selector that identifies the content to replace.
     pub selector: Selector,
     #[serde(default)]
+    /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
     #[serde(default)]
+    /// Inline Markdown content that replaces the selection.
     pub content: Option<String>,
     #[serde(default)]
+    /// Path to a file providing replacement Markdown content.
     pub content_file: Option<PathBuf>,
     #[serde(default)]
+    /// Optional selector delimiting the end of a multi-block replacement.
     pub until: Option<Selector>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+/// Describes deletion of content matched by a selector.
 pub struct DeleteOperation {
+    /// The selector identifying content to delete.
     pub selector: Selector,
     #[serde(default)]
+    /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
     #[serde(default)]
+    /// Deletes the entire section when targeting a heading selector.
     pub section: bool,
     #[serde(default)]
+    /// Optional selector delimiting the end of a multi-block deletion.
     pub until: Option<Selector>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+/// Assigns a value to a frontmatter key path.
 pub struct SetFrontmatterOperation {
+    /// The YAML path to assign.
     pub key: String,
     #[serde(default)]
+    /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
     #[serde(default)]
+    /// Inline YAML value to assign.
     pub value: Option<YamlValue>,
     #[serde(default)]
+    /// Path to a file providing the YAML value to assign.
     pub value_file: Option<PathBuf>,
     #[serde(default)]
+    /// Overrides the frontmatter serialization format when creating a new block.
     pub format: Option<FrontmatterFormat>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+/// Removes a frontmatter key path.
 pub struct DeleteFrontmatterOperation {
+    /// The YAML path to remove.
     pub key: String,
     #[serde(default)]
+    /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
+#[derive(Debug, Deserialize, PartialEq, Clone, Default)]
+/// Replaces the entire frontmatter block with new content.
 pub struct ReplaceFrontmatterOperation {
     #[serde(default)]
+    /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
     #[serde(default)]
+    /// Inline YAML content to use as the new frontmatter block.
     pub content: Option<YamlValue>,
     #[serde(default)]
+    /// Path to a file providing replacement YAML content.
     pub content_file: Option<PathBuf>,
     #[serde(default)]
+    /// Overrides the frontmatter serialization format when creating the block.
     pub format: Option<FrontmatterFormat>,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy, Default)]
 #[serde(rename_all = "snake_case")]
+/// Specifies where to place newly inserted content relative to the selector.
 pub enum InsertPosition {
+    /// Insert before the selector node.
     Before,
+    /// Insert after the selector node.
+    #[default]
     After,
+    /// Insert as the first child of the selector node.
     PrependChild,
+    /// Insert as the last child of the selector node.
     AppendChild,
 }
 
