@@ -73,7 +73,12 @@ class Selector:
 
 @dataclass(frozen=True, slots=True)
 class InsertOperation:
-    """Insert Markdown content relative to a selector."""
+    """Insert Markdown content relative to a selector.
+
+    ``position`` controls where the new content lands with respect to the
+    matched node (before, after, or as a child), matching the CLI schema
+    defined in ``goal-Python-library/Specification.md``.
+    """
 
     selector: Selector
     content: str | None = None
@@ -82,7 +87,12 @@ class InsertOperation:
 
 @dataclass(frozen=True, slots=True)
 class ReplaceOperation:
-    """Replace Markdown matched by a selector, optionally up to an `until` selector."""
+    """Replace Markdown matched by a selector, optionally up to ``until``.
+
+    When ``until`` is provided the replacement covers the range from the
+    selector through (but excluding) the ``until`` target, mirroring the Rust
+    transaction semantics.
+    """
 
     selector: Selector
     content: str | None = None
@@ -91,7 +101,12 @@ class ReplaceOperation:
 
 @dataclass(frozen=True, slots=True)
 class DeleteOperation:
-    """Delete Markdown matched by a selector."""
+    """Delete Markdown matched by a selector.
+
+    Setting ``section=True`` removes the entire heading section for a heading
+    match. Providing ``until`` deletes a range ending before the ``until``
+    selector. Both behaviors mirror the CLI and Rust core.
+    """
 
     selector: Selector
     section: bool = False
@@ -100,7 +115,12 @@ class DeleteOperation:
 
 @dataclass(frozen=True, slots=True)
 class SetFrontmatterOperation:
-    """Assign a value at the given frontmatter key path."""
+    """Assign a value at the given frontmatter key path.
+
+    Nested keys follow dot and array notation (for example ``authors[0].name``)
+    and accept native Python values that are converted to YAML/TOML by the Rust
+    layer.
+    """
 
     key: str
     value: Any
@@ -116,7 +136,12 @@ class DeleteFrontmatterOperation:
 
 @dataclass(frozen=True, slots=True)
 class ReplaceFrontmatterOperation:
-    """Replace the entire frontmatter payload."""
+    """Replace the entire frontmatter payload.
+
+    ``content`` should be a Python mapping or scalar that can be serialized to
+    YAML or TOML. ``format`` only applies when the document previously lacked
+    frontmatter, aligning with the specification's rules for new blocks.
+    """
 
     content: Any
     format: FrontmatterFormat | None = None
