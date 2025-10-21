@@ -23,4 +23,7 @@ pub enum SpliceError {
 
     #[error("Cannot read both source document and splice content from stdin.")]
     AmbiguousStdinSource,
+
+    #[error("The --section flag can only be used when deleting a heading (h1-h6).")]
+    InvalidSectionDelete,
 }

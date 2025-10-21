@@ -1,13 +1,13 @@
 # md-splice
 
-A command-line tool for precise, AST-aware insertion and replacement of content within Markdown files.
+A command-line tool for precise, AST-aware insertion, replacement, and deletion of content within Markdown files.
 
 `md-splice` parses Markdown into an Abstract Syntax Tree (AST), allowing you to select and modify logical document elements (like headings, paragraphs, or lists) instead of relying on fragile text or regex matching. It supports atomic in-place file updates to prevent data loss.
 
 ## Core features
 
 * **Structurally-aware modifications**: Operates on the Markdown AST, not plain text.
-* **Insert or replace**: Supports both inserting new content relative to a target and replacing a target entirely.
+* **Insert, replace, or delete**: Supports inserting new content, replacing existing nodes, or deleting nodes and sections entirely.
 * **Powerful node selection**: Select elements by type (`h1`, `p`, `list`), text content (fixed string or regex), and ordinal position (e.g., the 3rd paragraph).
 * **Heading section logic**: Intelligently handles insertions relative to a heading, correctly identifying the "section" of content that belongs to it.
 * **Safe file handling**: Performs atomic in-place writes to prevent file corruption on error. Can also write to a new file or standard output.
@@ -35,7 +35,7 @@ md-splice --file <PATH> [COMMAND] [OPTIONS]
 ```
 
 * `--file <PATH>`: The Markdown file to modify.
-* `[COMMAND]`: Either `insert` or `replace`.
+* `[COMMAND]`: One of `insert`, `replace`, or `delete` (alias: `remove`).
 * `[OPTIONS]`: Selectors and content options.
 
 ### Examples
@@ -231,6 +231,60 @@ Resulting `todo.md`:
 - [ ] Call the client
 ```
 
+#### 6. Delete Content
+
+The `delete` command removes nodes from the document using the same selector system. It also supports an optional `--section` f
+lag for heading-aware deletions.
+
+**Remove a specific paragraph:**
+
+Given `doc.md`:
+
+```markdown
+# Title
+
+First paragraph.
+
+Second paragraph to delete.
+
+Third paragraph.
+```
+
+Delete the middle paragraph by matching its contents:
+
+```sh
+md-splice --file doc.md delete --select-contains "Second paragraph"
+```
+
+Resulting `doc.md`:
+
+```markdown
+# Title
+
+First paragraph.
+
+Third paragraph.
+```
+
+**Delete a list item:**
+
+```sh
+md-splice --file tasks.md delete --select-type li --select-ordinal 2
+```
+
+This removes the second list item from `tasks.md`. If a list becomes empty, `md-splice` deletes the entire list block to avoid l
+eaving empty markers behind.
+
+**Delete an entire heading section:**
+
+```sh
+md-splice --file api.md delete \
+  --select-type h2 --select-contains "Deprecated API" --section
+```
+
+When `--section` is supplied, the selected heading and all content up to the next heading of the same or higher level is remove
+d. Using the command above deletes the "Deprecated API" section while leaving the rest of the document intact.
+
 ## Command-Line Reference
 
 ### Global Options
@@ -269,8 +323,24 @@ Options:
       --select-type <TYPE>           Select node by type (e.g., 'p', 'h1', 'list')
       --select-contains <TEXT>       Select node by its text content (fixed string)
       --select-regex <REGEX>         Select node by its text content (regex pattern)
-      --select-ordinal <N>           Select the Nth matching node (1-indexed) [default: 1]
+  --select-ordinal <N>           Select the Nth matching node (1-indexed) [default: 1]
   -p, --position <POSITION>        Position for the 'insert' operation [default: after]
+```
+
+#### `delete`
+
+Deletes the selected node. When the target is a heading, the optional `--section` flag deletes the entire section owned by that
+heading.
+
+```
+Usage: md-splice delete [OPTIONS]
+
+Options:
+      --select-type <TYPE>      Select node by type (e.g., 'p', 'h1', 'list')
+      --select-contains <TEXT>  Select node by its text content (fixed string)
+      --select-regex <REGEX>    Select node by its text content (regex pattern)
+      --select-ordinal <N>      Select the Nth matching node (1-indexed) [default: 1]
+      --section                 When deleting a heading, also delete its entire section
 ```
 
 ### Selector Options

@@ -88,6 +88,11 @@ pub fn insert(
     Ok(())
 }
 
+/// Deletes a block at the specified index from the document.
+pub fn delete(doc_blocks: &mut Vec<Block>, index: usize) {
+    doc_blocks.remove(index);
+}
+
 /// Extracts a vector of `ListItem`s from a vector of `Block`s.
 ///
 /// This function expects the input blocks to represent a single list. It will fail
@@ -182,6 +187,39 @@ pub(crate) fn insert_list_item(
         }
     }
     Ok(())
+}
+
+/// Deletes a list item and reports whether the parent list became empty.
+pub(crate) fn delete_list_item(
+    doc_blocks: &mut [Block],
+    block_index: usize,
+    item_index: usize,
+) -> anyhow::Result<bool> {
+    if let Some(Block::List(list)) = doc_blocks.get_mut(block_index) {
+        if item_index < list.items.len() {
+            list.items.remove(item_index);
+            Ok(list.items.is_empty())
+        } else {
+            anyhow::bail!(
+                "Internal error: item index {} is out of bounds for list with {} items",
+                item_index,
+                list.items.len()
+            );
+        }
+    } else {
+        anyhow::bail!(
+            "Internal error: block at index {} is not a list",
+            block_index
+        );
+    }
+}
+
+/// Deletes a heading and all blocks in its section.
+pub fn delete_section(doc_blocks: &mut Vec<Block>, start_index: usize) {
+    if let Some(level) = get_heading_level(&doc_blocks[start_index]) {
+        let end_index = find_heading_section_end(doc_blocks, start_index, level);
+        doc_blocks.drain(start_index..end_index);
+    }
 }
 
 /// Gets the level (1-6) of a heading block.
