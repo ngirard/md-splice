@@ -4,4 +4,23 @@ Cargo.lock
 
 # !
 devel/DEVELOPMENT_PLAN.md
-#devel/markdown-ppp_repo_snapshot.md
+devel/markdown-ppp_repo_snapshot.md
+devel/model-output.md
+scripts
+*.code-workspace
+
+justfile
+Makefile.toml
+LICENSE
+tests/snapshots
+
+
+# Prune md-splice for VIL-25-191-757
+#/Cargo.toml
+#/tests/
+#/src/bin/
+#/src/lib.rs
+#/src/error.rs
+
+/tests
+/devel

@@ -42,3 +42,6 @@ snapshot:
     snapshot_filename=".${project_name}_repo_snapshot.md"
     RIPGREP_CONFIG_PATH="{{invocation_directory()}}/.ripgreprc" dir2prompt > "${snapshot_filename}"
     wc -c "${snapshot_filename}"
+
+install:
+    sudo eget ngirard/md-splice --to /usr/local/bin
