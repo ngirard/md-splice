@@ -4,8 +4,9 @@ pub mod cli;
 pub mod error;
 pub mod locator;
 pub mod splicer;
+pub mod transaction;
 
-use crate::cli::{Cli, Command, DeleteArgs, GetArgs, ModificationArgs};
+use crate::cli::{ApplyArgs, Cli, Command, DeleteArgs, GetArgs, ModificationArgs};
 use crate::error::SpliceError;
 use crate::locator::{locate, locate_all, FoundNode, Selector};
 use crate::splicer::{
@@ -74,6 +75,9 @@ pub fn run() -> anyhow::Result<()> {
             process_get(&doc.blocks, args)?;
             return Ok(());
         }
+        Command::Apply(args) => {
+            process_apply_command(args)?;
+        }
     }
 
     // 5. Render AST to string
@@ -122,6 +126,40 @@ pub fn run() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn process_apply_command(args: ApplyArgs) -> anyhow::Result<()> {
+    let ApplyArgs {
+        operations_file,
+        operations,
+        dry_run,
+        diff,
+    } = args;
+
+    let operations_data = match (operations_file, operations) {
+        (Some(path), None) => {
+            if path.to_string_lossy() == "-" {
+                let mut buf = String::new();
+                io::stdin().read_to_string(&mut buf)?;
+                buf
+            } else {
+                fs::read_to_string(&path).with_context(|| {
+                    format!("Failed to read operations file: {}", path.display())
+                })?
+            }
+        }
+        (None, Some(inline)) => inline,
+        (Some(_), Some(_)) => unreachable!("clap's conflicts_with should prevent this"),
+        (None, None) => {
+            return Err(anyhow!(
+                "Either --operations-file or --operations must be provided."
+            ));
+        }
+    };
+
+    let _ = (operations_data, dry_run, diff);
+
+    Err(anyhow!("The apply command is not implemented yet."))
 }
 
 fn process_insert_or_replace(
