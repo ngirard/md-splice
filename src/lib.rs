@@ -7,27 +7,18 @@ pub mod splicer;
 pub mod transaction;
 
 use crate::cli::{
-    ApplyArgs,
-    Cli,
-    Command,
-    DeleteArgs,
-    GetArgs,
-    InsertPosition as CliInsertPosition,
+    ApplyArgs, Cli, Command, DeleteArgs, GetArgs, InsertPosition as CliInsertPosition,
     ModificationArgs,
 };
 use crate::error::SpliceError;
 use crate::locator::{locate, locate_all, FoundNode, Selector};
-use crate::transaction::{
-    DeleteOperation,
-    InsertOperation,
-    InsertPosition as TransactionInsertPosition,
-    Operation,
-    ReplaceOperation,
-    Selector as TransactionSelector,
-};
 use crate::splicer::{
     delete, delete_list_item, delete_section, find_heading_section_end, get_heading_level, insert,
     insert_list_item, replace, replace_list_item,
+};
+use crate::transaction::{
+    DeleteOperation, InsertOperation, InsertPosition as TransactionInsertPosition, Operation,
+    ReplaceOperation, Selector as TransactionSelector,
 };
 use anyhow::{anyhow, Context};
 use clap::Parser;
@@ -182,9 +173,8 @@ fn process_apply_command(doc_blocks: &mut Vec<Block>, args: ApplyArgs) -> anyhow
         log::warn!("--diff is not implemented yet and will be ignored.");
     }
 
-    let operations: Vec<Operation> = serde_yaml::from_str(&operations_data).with_context(|| {
-        "Failed to parse operations data as JSON or YAML"
-    })?;
+    let operations: Vec<Operation> = serde_yaml::from_str(&operations_data)
+        .with_context(|| "Failed to parse operations data as JSON or YAML")?;
 
     process_apply(doc_blocks, operations)?;
 
@@ -193,13 +183,19 @@ fn process_apply_command(doc_blocks: &mut Vec<Block>, args: ApplyArgs) -> anyhow
 
 #[allow(dead_code)]
 fn process_apply(doc_blocks: &mut Vec<Block>, operations: Vec<Operation>) -> anyhow::Result<()> {
+    let mut working_blocks = doc_blocks.clone();
+
     for operation in operations {
         match operation {
-            Operation::Replace(replace_op) => apply_replace_operation(doc_blocks, replace_op)?,
-            Operation::Insert(insert_op) => apply_insert_operation(doc_blocks, insert_op)?,
-            Operation::Delete(delete_op) => apply_delete_operation(doc_blocks, delete_op)?,
+            Operation::Replace(replace_op) => {
+                apply_replace_operation(&mut working_blocks, replace_op)?
+            }
+            Operation::Insert(insert_op) => apply_insert_operation(&mut working_blocks, insert_op)?,
+            Operation::Delete(delete_op) => apply_delete_operation(&mut working_blocks, delete_op)?,
         }
     }
+
+    *doc_blocks = working_blocks;
 
     Ok(())
 }
@@ -628,12 +624,8 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
 mod tests {
     use super::*;
     use crate::transaction::{
-        DeleteOperation,
-        InsertOperation,
-        InsertPosition as TxInsertPosition,
-        Operation,
-        ReplaceOperation,
-        Selector as TxSelector,
+        DeleteOperation, InsertOperation, InsertPosition as TxInsertPosition, Operation,
+        ReplaceOperation, Selector as TxSelector,
     };
     use markdown_ppp::ast::Document;
     use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
@@ -704,7 +696,10 @@ mod tests {
         let docs_index = rendered
             .find("- [ ] Write documentation")
             .expect("original item present");
-        assert!(unit_index < docs_index, "inserted item should appear before original item");
+        assert!(
+            unit_index < docs_index,
+            "inserted item should appear before original item"
+        );
     }
 
     #[test]
@@ -749,5 +744,48 @@ mod tests {
         assert!(!rendered.contains("Low Priority"));
         assert!(!rendered.contains("Another task"));
         assert!(rendered.contains("Write documentation"));
+    }
+
+    #[test]
+    fn process_apply_is_atomic_when_operation_fails() {
+        let initial = "# Project Tasks\n\nStatus: In Progress\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+        let original_blocks = blocks.clone();
+
+        let operations = vec![
+            Operation::Replace(ReplaceOperation {
+                selector: TxSelector {
+                    select_type: None,
+                    select_contains: Some("Status: In Progress".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                },
+                comment: None,
+                content: Some("Status: **Complete**".to_string()),
+                content_file: None,
+            }),
+            Operation::Delete(DeleteOperation {
+                selector: TxSelector {
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Does Not Exist".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                },
+                comment: None,
+                section: false,
+            }),
+        ];
+
+        let result = process_apply(&mut blocks, operations);
+
+        assert!(
+            result.is_err(),
+            "process_apply should fail when a selector does not match"
+        );
+        assert_eq!(
+            blocks, original_blocks,
+            "document blocks should remain unchanged on failure"
+        );
     }
 }

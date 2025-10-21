@@ -6,5 +6,6 @@
 - update 04: Finished Strategy Phase 2 Step 2.2 by wiring `process_apply` into the CLI flow, parsing operations via `serde_yaml`, and adding the integration test `apply_command_applies_replace_operation`. Command executed: `cargo test apply_command_applies_replace_operation` (passes).
 - update 05: Finished Strategy Phase 3 Step 3.1 by adding transactional insert support, including the new unit test `process_apply_inserts_list_item_before_target`. Command executed: `cargo test process_apply -- --nocapture` (passes).
 - update 06: Finished Strategy Phase 3 Step 3.2 by adding transactional delete support (including section deletes) and the unit test `process_apply_deletes_list_item_and_section`. Command executed: `cargo test process_apply -- --nocapture` (passes).
+- update 07: Finished Strategy Phase 4 by making `process_apply` atomic (cloning the document before applying operations) and adding safeguards via the unit test `process_apply_is_atomic_when_operation_fails` and integration test `apply_command_is_atomic_when_operation_fails`. Commands executed: `cargo test process_apply_is_atomic_when_operation_fails`, `cargo test --test apply apply_command_is_atomic_when_operation_fails`, and `cargo test` (all pass).
 
-Remaining work: implement transactional safeguards (Phase 4) and UX enhancements for `--dry-run`/`--diff` (Phase 5).
+Remaining work: implement UX enhancements for `--dry-run`/`--diff` (Phase 5).
