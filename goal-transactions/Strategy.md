@@ -168,3 +168,57 @@ A **Test-Driven Development (TDD)** approach is mandatory. Each phase will begin
     * If present, render the modified AST to a string.
     * Generate a textual diff between the original input content and the new rendered content.
     * Print the diff to stdout and return early.
+
+## Phase 6: The Manual - Documentation Updates
+
+**Goal:** Ensure that all user-facing documentation is updated to reflect the new `apply` command and its associated options, as per `Transactions-specification.md`.
+
+### Step 6.1: Update `README.md`
+
+* **RED (Write a failing test):**
+    * This phase is primarily manual, but we can simulate a "failing test" by checking for the *absence* of information.
+    * Mentally (or programmatically, if you have a documentation checker) verify that `README.md` does *not* currently mention:
+        * The `apply` subcommand.
+        * The `--operations-file`, `--operations`, `--dry-run`, and `--diff` flags.
+        * The concept of multi-operation transactions.
+        * Any examples of using the `apply` command.
+
+* **GREEN (Make the test pass):**
+    * **Add a new section for "Multi-Operation Support" or "Transactions".**
+        * Explain the problem this feature solves (inefficiency, fragility of multiple calls).
+        * Introduce the `apply` subcommand and its purpose.
+        * Clearly state the benefits: atomicity, efficiency, robustness.
+    * **Update the "Usage" section:**
+        * Add the `apply` command to the basic command structure.
+        * Provide clear examples of how to use `md-splice ... apply ...` with `--operations-file`, `--dry-run`, and `--diff`.
+        * Include an example demonstrating the use of `--operations` for inline JSON.
+    * **Add a "Operations File Specification" subsection.**
+        * Explain the structure of the JSON/YAML operations file.
+        * Detail the common fields (`op`, `select_type`, `select_contains`, `select_regex`, `select_ordinal`, `comment`).
+        * Detail the operation-specific fields for `replace`, `insert`, and `delete` (including `position` for `insert` and `section` for `delete`).
+        * Refer explicitly to `Transactions-specification.md` for the definitive schema.
+    * **Review existing examples:** Ensure they are still relevant and don't conflict with the new capabilities. Add new examples if necessary to illustrate how multi-operation can simplify complex tasks.
+
+### Step 6.2: Update `Transactions-specification.md` (Self-Correction/Refinement)
+
+* **RED (Write a failing test):**
+    * Review the `Transactions-specification.md` document itself. Does it accurately reflect the implemented CLI arguments and data structures? Are there any ambiguities or missing details that would hinder an LLM's understanding?
+
+* **GREEN (Make the test pass):**
+    * **Refine the specification:**
+        * Ensure consistency between the CLI arguments (`kebab-case`) and the operations file fields (`snake_case`), clearly explaining this mapping.
+        * Clarify any edge cases or behaviors (e.g., how errors are reported, the exact behavior of `--diff` when no changes occur).
+        * Add any necessary details about supported file formats (JSON, YAML) and auto-detection.
+        * Ensure the example in the specification is comprehensive and accurate.
+
+### Step 6.3: Update Command-Line Reference
+
+* **RED (Write a failing test):**
+    * Check the "Command-Line Reference" section in `README.md`.
+    * Verify that the `apply` command and its options are not listed or are listed incorrectly.
+
+* **GREEN (Make the test pass):**
+    * Add a new entry for the `apply` command under the "Commands" section.
+    * List all its options (`--operations-file`, `--operations`, `--dry-run`, `--diff`) with their descriptions and short flags.
+    * Ensure the global options (`--file`, `--output`) are still mentioned as applicable.
+

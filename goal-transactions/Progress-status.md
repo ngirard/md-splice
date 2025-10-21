@@ -14,4 +14,5 @@
   `apply_command_supports_diff_output`) with snapshot coverage. Commands executed:
   `cargo test apply_command_supports_ -- --nocapture`, `cargo test` (both pass).
 
-All strategy phases are now complete; multi-operation support feature is fully implemented.
+Remaining: Phase 6
+
