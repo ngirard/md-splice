@@ -62,3 +62,8 @@ update 11
 - Re-exported the full Python error hierarchy from `md_splice.__all__` and documented the base `MdSpliceError` so introspection exposes the spec-mandated exception surface.
 - Added a `CHANGELOG.md` that summarizes the Python binding capabilities delivered so far and codifies the Keep a Changelog structure for future releases.
 - Extended the import smoke tests to assert error docstrings and top-level availability, rerunning `maturin develop --manifest-path md-splice-py/Cargo.toml --release` followed by `.venv/bin/python -m pytest md-splice-py/tests` successfully.
+
+update 12
+- Addressed review feedback by statically re-exporting the error hierarchy from `md_splice.__init__` and guarding the base docstring injection to respect any native documentation.
+- Re-ran the editable build via `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and `.venv/bin/python -m pytest md-splice-py/tests` to confirm the adjustments remain green.
+- Milestone coverage: ✅ Milestones 1–8 complete; ongoing refinements now focus on polish and maintenance tasks beyond the core specification.

@@ -9,9 +9,10 @@ from __future__ import annotations
 
 from ._native import MdSpliceError
 
-MdSpliceError.__doc__ = (
-    "Base class for all exceptions raised by the md-splice Python bindings."
-)
+if not MdSpliceError.__doc__:
+    MdSpliceError.__doc__ = (
+        "Base class for all exceptions raised by the md-splice Python bindings."
+    )
 
 
 class NodeNotFoundError(MdSpliceError):

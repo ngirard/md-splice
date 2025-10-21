@@ -1,14 +1,34 @@
 """Python bindings for the md-splice Markdown editing toolkit.
 
-This module mirrors the public surface documented in
-``goal-Python-library/Specification.md`` by re-exporting the native
-``MarkdownDocument`` type, operation helpers, and the rich exception hierarchy.
+The package re-exports the native ``MarkdownDocument`` type, helper operations,
+and the rich exception hierarchy defined for the Rust core bindings.
 """
 
-from . import errors as errors
+from . import errors
+from .errors import (
+    AmbiguousContentSourceError,
+    AmbiguousStdinSourceError,
+    ConflictingScopeError,
+    FrontmatterKeyNotFoundError,
+    FrontmatterMissingError,
+    FrontmatterParseError,
+    FrontmatterSerializeError,
+    InvalidChildInsertionError,
+    InvalidListItemContentError,
+    InvalidRegexError,
+    InvalidSectionDeleteError,
+    IoError,
+    MarkdownParseError,
+    MdSpliceError,
+    NoContentError,
+    NodeNotFoundError,
+    OperationFailedError,
+    OperationParseError,
+    RangeRequiresBlockError,
+    SectionRequiresHeadingError,
+)
 from ._native import (
     MarkdownDocument,
-    MdSpliceError,
     __version__,
     diff_unified,
     dumps_operations,
@@ -29,7 +49,6 @@ from .types import (
 
 __all__ = [
     "MarkdownDocument",
-    "MdSpliceError",
     "diff_unified",
     "loads_operations",
     "dumps_operations",
@@ -47,9 +66,28 @@ __all__ = [
     "__version__",
 ]
 
-for _name in errors.__all__:
-    globals()[_name] = getattr(errors, _name)
-    if _name not in __all__:
-        __all__.append(_name)
-
-del _name
+__all__.extend(
+    [
+        "MdSpliceError",
+        "NodeNotFoundError",
+        "InvalidChildInsertionError",
+        "AmbiguousContentSourceError",
+        "NoContentError",
+        "InvalidListItemContentError",
+        "AmbiguousStdinSourceError",
+        "InvalidSectionDeleteError",
+        "SectionRequiresHeadingError",
+        "ConflictingScopeError",
+        "RangeRequiresBlockError",
+        "FrontmatterMissingError",
+        "FrontmatterKeyNotFoundError",
+        "FrontmatterParseError",
+        "FrontmatterSerializeError",
+        "MarkdownParseError",
+        "OperationParseError",
+        "OperationFailedError",
+        "IoError",
+        "InvalidRegexError",
+        "errors",
+    ]
+)
