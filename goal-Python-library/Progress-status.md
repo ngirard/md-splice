@@ -51,3 +51,9 @@ update 09
 - Documented the supported/unsupported regex flags in the Python README to guide users working with `Selector.select_regex`.
 - Expanded the `Selector` docstring to detail accepted `re` flags and the corresponding `InvalidRegexError` behavior.
 - Next: continue aligning documentation and docstrings with the remaining Specification sections (e.g., diff helpers, transaction semantics).
+
+update 10
+- Added comprehensive docstrings to the `MarkdownDocument` bindings and helper functions so Python introspection mirrors the Specification's guarantees for transactions, I/O, preview, and selector semantics.
+- Expanded the Python README with sections covering transactional safety, preview/diff helpers, and operations schema interoperability for parity with the spec.
+- Enriched operation dataclass docstrings to describe range, section, and frontmatter behaviors consistent with the CLI schema.
+- Next: Audit remaining public APIs (e.g., module-level `__all__`, error classes) for docstring completeness and add changelog entries summarizing the Python bindings.

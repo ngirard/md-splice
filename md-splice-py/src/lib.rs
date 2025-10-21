@@ -36,6 +36,11 @@ use tempfile::Builder as TempFileBuilder;
 
 create_exception!(_native, MdSpliceError, PyException);
 
+/// AST-backed Markdown document that mirrors the `md-splice` Rust core.
+///
+/// Instances of this class expose semantic selectors, transactional
+/// operations, and atomic write helpers exactly as documented in
+/// `goal-Python-library/Specification.md`.
 #[pyclass(name = "MarkdownDocument", module = "md_splice")]
 pub struct PyMarkdownDocument {
     inner: CoreMarkdownDocument,
@@ -44,6 +49,11 @@ pub struct PyMarkdownDocument {
 
 #[pymethods]
 impl PyMarkdownDocument {
+    /// Parse Markdown from an in-memory string and return a new document.
+    ///
+    /// Use this constructor when you already hold the Markdown source. The
+    /// resulting document can be queried with selectors, mutated via
+    /// operations, and rendered back to Markdown with :meth:`render`.
     #[classmethod]
     pub fn from_string(_cls: &Bound<'_, PyType>, markdown: &str) -> PyResult<Self> {
         let document = CoreMarkdownDocument::from_str(markdown).map_err(map_splice_error)?;
@@ -53,6 +63,10 @@ impl PyMarkdownDocument {
         })
     }
 
+    /// Load Markdown from ``path`` and associate the document with that file.
+    ///
+    /// Subsequent calls to :meth:`write_in_place` will persist changes back to
+    /// this path using the atomic semantics required by the specification.
     #[classmethod]
     pub fn from_file(_cls: &Bound<'_, PyType>, path: &Bound<'_, PyAny>) -> PyResult<Self> {
         let path_buf: PathBuf = path.extract()?;
@@ -65,10 +79,19 @@ impl PyMarkdownDocument {
         })
     }
 
+    /// Render the current Markdown document to a string.
+    ///
+    /// The output reflects all in-memory mutations performed through
+    /// :meth:`apply` without writing them to disk.
     pub fn render(&self) -> PyResult<String> {
         Ok(self.inner.render())
     }
 
+    /// Atomically write the document back to its source path.
+    ///
+    /// When ``backup`` is ``True`` the current on-disk file is first copied to
+    /// a ``.bak`` sibling before the atomic replace occurs. This mirrors the
+    /// CLI's safety guarantees described in the specification.
     #[pyo3(signature = (*, backup=false))]
     pub fn write_in_place(&self, backup: bool) -> PyResult<()> {
         let Some(path) = &self.source_path else {
@@ -86,11 +109,21 @@ impl PyMarkdownDocument {
         Ok(())
     }
 
+    /// Render the document and write it to ``path`` atomically.
+    ///
+    /// Unlike :meth:`write_in_place`, this method always targets the provided
+    /// location and does not require the document to originate from disk.
     pub fn write_to(&self, path: &Bound<'_, PyAny>) -> PyResult<()> {
         let path_buf: PathBuf = path.extract()?;
         write_to_path(&path_buf, &self.inner.render())
     }
 
+    /// Apply a list of operations transactionally to the document.
+    ///
+    /// The operations mirror the CLI schema. All edits either succeed as a
+    /// unit or the document remains unchanged. When ``warn_on_ambiguity`` is
+    /// ``True`` a :class:`UserWarning` is emitted if any selector matches more
+    /// than one node, matching the behavior mandated in the specification.
     #[pyo3(signature = (ops, *, warn_on_ambiguity=true))]
     pub fn apply(
         &mut self,
@@ -107,6 +140,10 @@ impl PyMarkdownDocument {
         Ok(())
     }
 
+    /// Preview a list of operations without mutating the original document.
+    ///
+    /// The operations run against a clone and the rendered Markdown is
+    /// returned. Ambiguity warnings follow the same rules as :meth:`apply`.
     #[pyo3(signature = (ops, *, warn_on_ambiguity=true))]
     pub fn preview(
         &self,
@@ -123,6 +160,13 @@ impl PyMarkdownDocument {
         Ok(clone.render())
     }
 
+    /// Retrieve Markdown matching ``selector`` with optional range controls.
+    ///
+    /// When ``select_all`` is ``False`` the first match is returned. Setting
+    /// ``section`` renders an entire heading section, while ``until`` defines a
+    /// range ending before the provided selector. When ``select_all`` is
+    /// ``True`` the return value is a list of rendered snippets for every
+    /// match, and ``until`` must be omitted.
     #[pyo3(signature = (selector, *, select_all=false, section=false, until=None))]
     pub fn get(
         &self,
@@ -182,6 +226,10 @@ impl PyMarkdownDocument {
         Ok(PyString::new_bound(py, &rendered).into_py(py))
     }
 
+    /// Return the frontmatter as native Python data or ``None``.
+    ///
+    /// The value mirrors the YAML/TOML content as described in the
+    /// specification and round-trips through :class:`yaml` compatible types.
     pub fn frontmatter(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
         match self.inner.frontmatter() {
             Some(value) => yaml_value_to_py(py, value).map(Some),
@@ -189,6 +237,7 @@ impl PyMarkdownDocument {
         }
     }
 
+    /// Return the detected frontmatter format enum or ``None`` when absent.
     pub fn frontmatter_format(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
         let Some(format) = self.inner.frontmatter_format() else {
             return Ok(None);
@@ -206,6 +255,7 @@ impl PyMarkdownDocument {
         Ok(Some(variant.into_py(py)))
     }
 
+    /// Create a deep copy of the document, including pending mutations.
     pub fn clone(&self) -> PyResult<Self> {
         Ok(Self {
             inner: self.inner.clone(),
@@ -793,6 +843,9 @@ fn find_heading_section_end(blocks: &[Block], heading_index: usize, target_level
     end
 }
 
+/// Produce a unified diff between two Markdown strings.
+///
+/// The optional ``fromfile`` and ``tofile`` labels appear in the diff header.
 #[pyfunction]
 #[pyo3(signature = (before, after, *, fromfile="original", tofile="modified"))]
 fn diff_unified(before: &str, after: &str, fromfile: &str, tofile: &str) -> PyResult<String> {
@@ -803,6 +856,10 @@ fn diff_unified(before: &str, after: &str, fromfile: &str, tofile: &str) -> PyRe
     Ok(diff)
 }
 
+/// Parse YAML or JSON operation definitions into Python dataclasses.
+///
+/// The ``format`` parameter can force ``"yaml"`` or ``"json"``. When omitted
+/// the loader first attempts YAML then falls back to JSON, matching the CLI.
 #[pyfunction]
 #[pyo3(signature = (text, *, format=None))]
 fn loads_operations(py: Python<'_>, text: &str, format: Option<&str>) -> PyResult<PyObject> {
@@ -818,6 +875,10 @@ fn loads_operations(py: Python<'_>, text: &str, format: Option<&str>) -> PyResul
     Ok(py_list.into_py(py))
 }
 
+/// Serialize Python operation dataclasses to YAML or JSON.
+///
+/// ``format`` defaults to ``"yaml"``; specifying ``"json"`` returns formatted
+/// JSON compatible with the CLI tooling.
 #[pyfunction]
 #[pyo3(signature = (operations, *, format="yaml"))]
 fn dumps_operations(
