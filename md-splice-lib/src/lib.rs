@@ -20,13 +20,14 @@ use crate::splicer::{
     insert_list_item, replace, replace_list_item,
 };
 use crate::transaction::{
-    DeleteFrontmatterOperation, DeleteOperation, InsertOperation,
-    InsertPosition as TransactionInsertPosition, Operation, ReplaceFrontmatterOperation,
-    ReplaceOperation, Selector as TransactionSelector, SetFrontmatterOperation,
+    DeleteFrontmatterOperation, DeleteOperation, InsertOperation, Operation,
+    ReplaceFrontmatterOperation, ReplaceOperation, Selector as TransactionSelector,
+    SetFrontmatterOperation,
 };
 use anyhow::{anyhow, Context};
 use clap::Parser;
 use markdown_ppp::ast::Block;
+use markdown_ppp::ast::Document;
 use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
 use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
 use regex::Regex;
@@ -46,6 +47,51 @@ enum FrontmatterCommandMode {
     Unchanged,
     ReadOnly,
     Mutated,
+}
+
+/// Represents an in-memory Markdown document that can be manipulated using AST-aware operations.
+pub struct MarkdownDocument {
+    parsed: ParsedDocument,
+    doc: Document,
+}
+
+impl MarkdownDocument {
+    /// Parses a Markdown document from a string, extracting frontmatter and building the AST.
+    pub fn from_str(content: &str) -> Result<Self, SpliceError> {
+        let parsed = frontmatter::parse(content)
+            .map_err(|err| SpliceError::FrontmatterParse(err.to_string()))?;
+        let doc = parse_markdown(MarkdownParserState::default(), &parsed.body)
+            .map_err(|err| SpliceError::MarkdownParse(err.to_string()))?;
+
+        Ok(Self { parsed, doc })
+    }
+
+    /// Applies a list of transactional operations to the document.
+    pub fn apply(&mut self, operations: Vec<Operation>) -> Result<(), SpliceError> {
+        let frontmatter_mutated =
+            apply_operations(&mut self.doc.blocks, &mut self.parsed, operations)?;
+
+        if frontmatter_mutated {
+            refresh_frontmatter_block(&mut self.parsed)
+                .map_err(|err| SpliceError::FrontmatterSerialize(err.to_string()))?;
+        }
+
+        Ok(())
+    }
+
+    /// Renders the document, including frontmatter, back to a Markdown string.
+    pub fn render(&self) -> String {
+        let mut output = String::new();
+
+        if let Some(prefix) = self.parsed.frontmatter_block.as_deref() {
+            output.push_str(prefix);
+        }
+
+        let body_output = render_markdown(&self.doc, PrinterConfig::default());
+        output.push_str(&body_output);
+
+        output
+    }
 }
 
 impl From<FrontmatterFormatArg> for FrontmatterFormat {
@@ -349,7 +395,7 @@ fn process_apply_command(
     let operations: Vec<Operation> = serde_yaml::from_str(&operations_data)
         .with_context(|| "Failed to parse operations data as JSON or YAML")?;
 
-    let frontmatter_mutated = process_apply(doc_blocks, parsed_document, operations)?;
+    let frontmatter_mutated = apply_operations(doc_blocks, parsed_document, operations)?;
 
     let mode = if diff {
         OutputMode::Diff
@@ -363,11 +409,11 @@ fn process_apply_command(
 }
 
 #[allow(dead_code)]
-fn process_apply(
+fn apply_operations(
     doc_blocks: &mut Vec<Block>,
     parsed_document: &mut ParsedDocument,
     operations: Vec<Operation>,
-) -> anyhow::Result<bool> {
+) -> Result<bool, SpliceError> {
     let mut working_blocks = doc_blocks.clone();
     let mut working_document = parsed_document.clone();
     let mut frontmatter_mutated = false;
@@ -375,20 +421,26 @@ fn process_apply(
     for operation in operations {
         match operation {
             Operation::Replace(replace_op) => {
-                apply_replace_operation(&mut working_blocks, replace_op)?
+                apply_replace_operation(&mut working_blocks, replace_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?
             }
-            Operation::Insert(insert_op) => apply_insert_operation(&mut working_blocks, insert_op)?,
-            Operation::Delete(delete_op) => apply_delete_operation(&mut working_blocks, delete_op)?,
+            Operation::Insert(insert_op) => apply_insert_operation(&mut working_blocks, insert_op)
+                .map_err(|err| SpliceError::OperationFailed(err.to_string()))?,
+            Operation::Delete(delete_op) => apply_delete_operation(&mut working_blocks, delete_op)
+                .map_err(|err| SpliceError::OperationFailed(err.to_string()))?,
             Operation::SetFrontmatter(set_op) => {
-                apply_set_frontmatter_operation(&mut working_document, set_op)?;
+                apply_set_frontmatter_operation(&mut working_document, set_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
                 frontmatter_mutated = true;
             }
             Operation::DeleteFrontmatter(delete_op) => {
-                apply_delete_frontmatter_operation(&mut working_document, delete_op)?;
+                apply_delete_frontmatter_operation(&mut working_document, delete_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
                 frontmatter_mutated = true;
             }
             Operation::ReplaceFrontmatter(replace_op) => {
-                apply_replace_frontmatter_operation(&mut working_document, replace_op)?;
+                apply_replace_frontmatter_operation(&mut working_document, replace_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
                 frontmatter_mutated = true;
             }
         }
@@ -471,7 +523,7 @@ fn apply_insert_operation(
     let new_content_doc = parse_markdown(MarkdownParserState::default(), &content_str)
         .map_err(|e| anyhow!("Failed to parse content markdown: {}", e))?;
     let new_blocks = new_content_doc.blocks;
-    let position = map_transaction_insert_position(operation.position);
+    let position = operation.position;
 
     match found_node {
         FoundNode::Block { index, .. } => {
@@ -636,12 +688,12 @@ fn resolve_operation_content(
     }
 }
 
-fn map_transaction_insert_position(position: TransactionInsertPosition) -> CliInsertPosition {
+fn map_cli_insert_position(position: CliInsertPosition) -> transaction::InsertPosition {
     match position {
-        TransactionInsertPosition::Before => CliInsertPosition::Before,
-        TransactionInsertPosition::After => CliInsertPosition::After,
-        TransactionInsertPosition::PrependChild => CliInsertPosition::PrependChild,
-        TransactionInsertPosition::AppendChild => CliInsertPosition::AppendChild,
+        CliInsertPosition::Before => transaction::InsertPosition::Before,
+        CliInsertPosition::After => transaction::InsertPosition::After,
+        CliInsertPosition::PrependChild => transaction::InsertPosition::PrependChild,
+        CliInsertPosition::AppendChild => transaction::InsertPosition::AppendChild,
     }
 }
 
@@ -668,7 +720,7 @@ fn process_insert_or_replace(
         until_type,
         until_contains,
         until_regex,
-        position,
+        position: cli_position,
     } = args;
 
     if !is_replace && (until_type.is_some() || until_contains.is_some() || until_regex.is_some()) {
@@ -742,7 +794,12 @@ fn process_insert_or_replace(
                     replace(doc_blocks, index, new_blocks);
                 }
             } else {
-                insert(doc_blocks, index, new_blocks, position)?;
+                insert(
+                    doc_blocks,
+                    index,
+                    new_blocks,
+                    map_cli_insert_position(cli_position),
+                )?;
             }
         }
         FoundNode::ListItem {
@@ -756,7 +813,13 @@ fn process_insert_or_replace(
                 }
                 replace_list_item(doc_blocks, block_index, item_index, new_blocks)?;
             } else {
-                insert_list_item(doc_blocks, block_index, item_index, new_blocks, position)?;
+                insert_list_item(
+                    doc_blocks,
+                    block_index,
+                    item_index,
+                    new_blocks,
+                    map_cli_insert_position(cli_position),
+                )?;
             }
         }
     }
@@ -1593,7 +1656,7 @@ mod tests {
             until: None,
         })];
 
-        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+        let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
             .expect("replace operation succeeds");
         assert!(!frontmatter_changed);
 
@@ -1635,7 +1698,7 @@ mod tests {
             position: TxInsertPosition::Before,
         })];
 
-        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+        let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
             .expect("insert operation succeeds");
         assert!(!frontmatter_changed);
 
@@ -1699,7 +1762,7 @@ mod tests {
             }),
         ];
 
-        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+        let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
             .expect("delete operations succeed");
         assert!(!frontmatter_changed);
 
@@ -1751,7 +1814,7 @@ mod tests {
             }),
         })];
 
-        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+        let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
             .expect("replace range succeeds");
         assert!(!frontmatter_changed);
 
@@ -1800,7 +1863,7 @@ mod tests {
             until: None,
         })];
 
-        let frontmatter_changed = process_apply(&mut blocks, &mut parsed_document, operations)
+        let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
             .expect("scoped delete succeeds");
         assert!(!frontmatter_changed);
 
@@ -1861,11 +1924,11 @@ mod tests {
             }),
         ];
 
-        let result = process_apply(&mut blocks, &mut parsed_document, operations);
+        let result = apply_operations(&mut blocks, &mut parsed_document, operations);
 
         assert!(
             result.is_err(),
-            "process_apply should fail when a selector does not match"
+            "apply_operations should fail when a selector does not match"
         );
         assert_eq!(
             blocks, original_blocks,

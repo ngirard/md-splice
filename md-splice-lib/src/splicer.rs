@@ -1,6 +1,6 @@
 //! Contains the logic for modifying the Markdown AST (inserting/replacing nodes).
 
-use crate::{cli::InsertPosition, error::SpliceError};
+use crate::{error::SpliceError, transaction::InsertPosition};
 use markdown_ppp::ast::{Block, Heading, HeadingKind, ListItem, SetextHeading};
 
 /// Replaces a block at a specific index with a new set of blocks.
@@ -276,10 +276,10 @@ fn block_type_name(block: &Block) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::insert;
-    use crate::cli::InsertPosition;
     use crate::error::SpliceError;
     use crate::locator::{list_item_to_text, locate, FoundNode, Selector};
     use crate::splicer::{insert_list_item, replace, replace_list_item};
+    use crate::transaction::InsertPosition;
     use markdown_ppp::ast::{Block, Document, Inline};
     use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
 
