@@ -24,6 +24,12 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "hypothesis>=6.92",
+]
+
 [tool.maturin]
 bindings = "pyo3"
 module-name = "md_splice._native"

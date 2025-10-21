@@ -67,3 +67,8 @@ update 12
 - Addressed review feedback by statically re-exporting the error hierarchy from `md_splice.__init__` and guarding the base docstring injection to respect any native documentation.
 - Re-ran the editable build via `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and `.venv/bin/python -m pytest md-splice-py/tests` to confirm the adjustments remain green.
 - Milestone coverage: ✅ Milestones 1–8 complete; ongoing refinements now focus on polish and maintenance tasks beyond the core specification.
+
+update 13
+- Added Hypothesis-backed property tests asserting that failing transactions leave documents untouched and that `preview` never mutates the original document, aligning with the specification's invariants section.
+- Declared a `dev` optional dependency group including `pytest` and `hypothesis` so contributors can install the tooling required for the expanded test suite via `pip install .[dev]`.
+- Verified the new property tests by reinstalling the extension (`maturin develop`) and running `pytest` to ensure the suite passes with the Hypothesis additions.
