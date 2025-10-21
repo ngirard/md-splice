@@ -35,4 +35,10 @@ pub enum SpliceError {
 
     #[error("Range selectors are only supported for block-level selections.")]
     RangeRequiresBlock,
+
+    #[error("No frontmatter exists in the document.")]
+    FrontmatterMissing,
+
+    #[error("Frontmatter key '{0}' was not found.")]
+    FrontmatterKeyNotFound(String),
 }
