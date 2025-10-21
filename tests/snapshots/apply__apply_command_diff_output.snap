@@ -1,0 +1,14 @@
+---
+source: tests/apply.rs
+assertion_line: 175
+expression: stdout
+---
+--- original
++++ modified
+@@ -1,4 +1,3 @@
+ # Title
+ 
+-Replace me.
+-Second line.
++Updated content.
+\ No newline at end of file
