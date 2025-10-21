@@ -622,6 +622,7 @@ dependencies = [
  "pyo3",
  "regex",
  "serde_yaml",
+ "similar",
 ]
 
 [[package]]

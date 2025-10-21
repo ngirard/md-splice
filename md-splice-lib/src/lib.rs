@@ -78,6 +78,24 @@ pub struct MarkdownDocument {
     doc: Document,
 }
 
+impl Clone for MarkdownDocument {
+    fn clone(&self) -> Self {
+        Self {
+            parsed: self.parsed.clone(),
+            doc: self.doc.clone(),
+        }
+    }
+}
+
+/// Result metadata describing the side-effects of applying a batch of operations.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ApplyOutcome {
+    /// Whether the frontmatter payload was mutated by any operation in the batch.
+    pub frontmatter_mutated: bool,
+    /// Whether any selector matched more than one node (ambiguity) during execution.
+    pub ambiguity_detected: bool,
+}
+
 impl MarkdownDocument {
     /// Applies a list of transactional operations to the document.
     ///
@@ -86,15 +104,24 @@ impl MarkdownDocument {
     /// original. If any step fails (e.g., because a selector matches nothing),
     /// the document is left untouched and a [`SpliceError`] is returned.
     pub fn apply(&mut self, operations: Vec<Operation>) -> Result<(), SpliceError> {
-        let frontmatter_mutated =
-            apply_operations(&mut self.doc.blocks, &mut self.parsed, operations)?;
+        self.apply_with_ambiguity(operations)?;
+        Ok(())
+    }
 
-        if frontmatter_mutated {
+    /// Applies operations and returns metadata describing the execution results.
+    pub fn apply_with_ambiguity(
+        &mut self,
+        operations: Vec<Operation>,
+    ) -> Result<ApplyOutcome, SpliceError> {
+        let outcome =
+            apply_operations_with_ambiguity(&mut self.doc.blocks, &mut self.parsed, operations)?;
+
+        if outcome.frontmatter_mutated {
             refresh_frontmatter_block(&mut self.parsed)
                 .map_err(|err| SpliceError::FrontmatterSerialize(err.to_string()))?;
         }
 
-        Ok(())
+        Ok(outcome)
     }
 
     /// Renders the document, including frontmatter, back to a Markdown string.
@@ -162,25 +189,43 @@ fn compute_range_end(
     }
 }
 
+#[allow(dead_code)]
 fn apply_operations(
     doc_blocks: &mut Vec<Block>,
     parsed_document: &mut ParsedDocument,
     operations: Vec<Operation>,
 ) -> Result<bool, SpliceError> {
+    let outcome = apply_operations_with_ambiguity(doc_blocks, parsed_document, operations)?;
+    Ok(outcome.frontmatter_mutated)
+}
+
+fn apply_operations_with_ambiguity(
+    doc_blocks: &mut Vec<Block>,
+    parsed_document: &mut ParsedDocument,
+    operations: Vec<Operation>,
+) -> Result<ApplyOutcome, SpliceError> {
     let mut working_blocks = doc_blocks.clone();
     let mut working_document = parsed_document.clone();
     let mut frontmatter_mutated = false;
+    let mut ambiguity_detected = false;
 
     for operation in operations {
         match operation {
             Operation::Replace(replace_op) => {
-                apply_replace_operation(&mut working_blocks, replace_op)
-                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?
+                let was_ambiguous = apply_replace_operation(&mut working_blocks, replace_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                ambiguity_detected |= was_ambiguous;
             }
-            Operation::Insert(insert_op) => apply_insert_operation(&mut working_blocks, insert_op)
-                .map_err(|err| SpliceError::OperationFailed(err.to_string()))?,
-            Operation::Delete(delete_op) => apply_delete_operation(&mut working_blocks, delete_op)
-                .map_err(|err| SpliceError::OperationFailed(err.to_string()))?,
+            Operation::Insert(insert_op) => {
+                let was_ambiguous = apply_insert_operation(&mut working_blocks, insert_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                ambiguity_detected |= was_ambiguous;
+            }
+            Operation::Delete(delete_op) => {
+                let was_ambiguous = apply_delete_operation(&mut working_blocks, delete_op)
+                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                ambiguity_detected |= was_ambiguous;
+            }
             Operation::SetFrontmatter(set_op) => {
                 apply_set_frontmatter_operation(&mut working_document, set_op)
                     .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
@@ -202,14 +247,17 @@ fn apply_operations(
     *doc_blocks = working_blocks;
     *parsed_document = working_document;
 
-    Ok(frontmatter_mutated)
+    Ok(ApplyOutcome {
+        frontmatter_mutated,
+        ambiguity_detected,
+    })
 }
 
 #[allow(dead_code)]
 fn apply_replace_operation(
     doc_blocks: &mut Vec<Block>,
     operation: ReplaceOperation,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let ReplaceOperation {
         selector,
         comment: _,
@@ -255,14 +303,14 @@ fn apply_replace_operation(
         }
     }
 
-    Ok(())
+    Ok(is_ambiguous)
 }
 
 #[allow(dead_code)]
 fn apply_insert_operation(
     doc_blocks: &mut Vec<Block>,
     operation: InsertOperation,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let selector = build_locator_selector(&operation.selector)?;
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
@@ -291,14 +339,14 @@ fn apply_insert_operation(
         }
     }
 
-    Ok(())
+    Ok(is_ambiguous)
 }
 
 #[allow(dead_code)]
 fn apply_delete_operation(
     doc_blocks: &mut Vec<Block>,
     operation: DeleteOperation,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let DeleteOperation {
         selector,
         comment: _,
@@ -349,7 +397,7 @@ fn apply_delete_operation(
         }
     }
 
-    Ok(())
+    Ok(is_ambiguous)
 }
 
 fn apply_set_frontmatter_operation(

@@ -22,3 +22,9 @@ update 04
 - Added Rust helpers for regex bridging, heading section computation, and markdown rendering plus a Python test suite (`test_get.py`) covering type/regex filters, sections, ranges, and select-all semantics.
 - Verified editable build via `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and passing tests with `.venv/bin/python -m pytest md-splice-py/tests`.
 - Next: extend bindings to cover transactional operations (`apply`) and diff/preview helpers per Milestone 5.
+
+update 05
+- Added transactional operation support by mirroring Rust `Operation` enums into Python dataclasses and bridging them through the native layer, including YAML conversion and selector translation.
+- Exposed `MarkdownDocument.apply`, `preview`, and `clone`, plus `diff_unified`, with ambiguity warnings surfaced via Python's warnings system.
+- Extended Rust core with `ApplyOutcome` metadata and Python bindings to emit warnings, alongside a new test suite (`test_apply.py`) covering insert/replace/delete/frontmatter ops, atomicity, preview, and diff helpers.
+- Verified editable build with `.venv/bin/maturin develop --manifest-path md-splice-py/Cargo.toml --release` and `pytest` across the full test matrix.
