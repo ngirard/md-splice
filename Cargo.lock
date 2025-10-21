@@ -619,6 +619,7 @@ version = "0.0.1"
 dependencies = [
  "md-splice-lib",
  "pyo3",
+ "serde_yaml",
 ]
 
 [[package]]
