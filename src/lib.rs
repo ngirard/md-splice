@@ -327,7 +327,17 @@ fn apply_replace_operation(
     doc_blocks: &mut Vec<Block>,
     operation: ReplaceOperation,
 ) -> anyhow::Result<()> {
-    let selector = build_locator_selector(&operation.selector)?;
+    let ReplaceOperation {
+        selector,
+        comment: _,
+        content,
+        content_file,
+        until,
+    } = operation;
+
+    let selector = build_locator_selector(&selector)?;
+    let until_selector = build_optional_locator_selector(until.as_ref())?;
+
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
     if is_ambiguous {
@@ -336,20 +346,28 @@ fn apply_replace_operation(
         );
     }
 
-    let content_str = resolve_operation_content(operation.content, operation.content_file)?;
+    let content_str = resolve_operation_content(content, content_file)?;
     let new_content_doc = parse_markdown(MarkdownParserState::default(), &content_str)
         .map_err(|e| anyhow!("Failed to parse content markdown: {}", e))?;
     let new_blocks = new_content_doc.blocks;
 
     match found_node {
         FoundNode::Block { index, .. } => {
-            replace(doc_blocks, index, new_blocks);
+            if let Some(until_selector) = until_selector.as_ref() {
+                let end_index = compute_range_end(doc_blocks, index, until_selector)?;
+                doc_blocks.splice(index..end_index, new_blocks);
+            } else {
+                replace(doc_blocks, index, new_blocks);
+            }
         }
         FoundNode::ListItem {
             block_index,
             item_index,
             ..
         } => {
+            if until_selector.is_some() {
+                return Err(SpliceError::RangeRequiresBlock.into());
+            }
             replace_list_item(doc_blocks, block_index, item_index, new_blocks)?;
         }
     }
@@ -398,7 +416,15 @@ fn apply_delete_operation(
     doc_blocks: &mut Vec<Block>,
     operation: DeleteOperation,
 ) -> anyhow::Result<()> {
-    let selector = build_locator_selector(&operation.selector)?;
+    let DeleteOperation {
+        selector,
+        comment: _,
+        section,
+        until,
+    } = operation;
+
+    let selector = build_locator_selector(&selector)?;
+    let until_selector = build_optional_locator_selector(until.as_ref())?;
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
     if is_ambiguous {
@@ -409,7 +435,10 @@ fn apply_delete_operation(
 
     match found_node {
         FoundNode::Block { index, block } => {
-            if operation.section {
+            if let Some(until_selector) = until_selector.as_ref() {
+                let end_index = compute_range_end(doc_blocks, index, until_selector)?;
+                doc_blocks.drain(index..end_index);
+            } else if section {
                 if matches!(block, Block::Heading(_)) {
                     delete_section(doc_blocks, index);
                 } else {
@@ -424,7 +453,10 @@ fn apply_delete_operation(
             item_index,
             ..
         } => {
-            if operation.section {
+            if until_selector.is_some() {
+                return Err(SpliceError::RangeRequiresBlock.into());
+            }
+            if section {
                 return Err(SpliceError::InvalidSectionDelete.into());
             }
             let list_became_empty = delete_list_item(doc_blocks, block_index, item_index)?;
@@ -448,13 +480,23 @@ fn build_locator_selector(selector: &TransactionSelector) -> anyhow::Result<Sele
         None
     };
 
+    let after = build_optional_locator_selector(selector.after.as_deref())?;
+    let within = build_optional_locator_selector(selector.within.as_deref())?;
+
     Ok(Selector {
         select_type: selector.select_type.clone(),
         select_contains: selector.select_contains.clone(),
         select_regex,
         select_ordinal: selector.select_ordinal,
-        ..Default::default()
+        after: after.map(Box::new),
+        within: within.map(Box::new),
     })
+}
+
+fn build_optional_locator_selector(
+    selector: Option<&TransactionSelector>,
+) -> anyhow::Result<Option<Selector>> {
+    selector.map(|sel| build_locator_selector(sel)).transpose()
 }
 
 #[allow(dead_code)]
@@ -874,10 +916,13 @@ mod tests {
                 select_contains: Some("Status: In Progress".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
+                after: None,
+                within: None,
             },
             comment: None,
             content: Some("Status: **Complete**".to_string()),
             content_file: None,
+            until: None,
         })];
 
         process_apply(&mut blocks, operations).expect("replace operation succeeds");
@@ -905,6 +950,8 @@ mod tests {
                 select_contains: Some("Write documentation".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
+                after: None,
+                within: None,
             },
             comment: None,
             content: Some("- [ ] Implement unit tests".to_string()),
@@ -946,9 +993,12 @@ mod tests {
                     select_contains: Some("Old task".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
+                    after: None,
+                    within: None,
                 },
                 comment: None,
                 section: false,
+                until: None,
             }),
             Operation::Delete(DeleteOperation {
                 selector: TxSelector {
@@ -956,9 +1006,12 @@ mod tests {
                     select_contains: Some("Low Priority".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
+                    after: None,
+                    within: None,
                 },
                 comment: None,
                 section: true,
+                until: None,
             }),
         ];
 
@@ -978,6 +1031,91 @@ mod tests {
     }
 
     #[test]
+    fn process_apply_replace_uses_until_range() {
+        let initial =
+            "# Guide\n\n## Installation\nStep one.\n\nStep two.\n\n## Usage\nUsage notes.\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+
+        let operations = vec![Operation::Replace(ReplaceOperation {
+            selector: TxSelector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Installation".to_string()),
+                select_regex: None,
+                select_ordinal: 1,
+                after: None,
+                within: None,
+            },
+            comment: None,
+            content: Some("## Installation\nUpdated steps.\n".to_string()),
+            content_file: None,
+            until: Some(TxSelector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Usage".to_string()),
+                select_regex: None,
+                select_ordinal: 1,
+                after: None,
+                within: None,
+            }),
+        })];
+
+        process_apply(&mut blocks, operations).expect("replace range succeeds");
+
+        let rendered = render_markdown(
+            &Document {
+                blocks: blocks.clone(),
+            },
+            PrinterConfig::default(),
+        );
+
+        assert!(rendered.contains("Updated steps."));
+        assert!(!rendered.contains("Step one."));
+        assert!(rendered.contains("## Usage"));
+    }
+
+    #[test]
+    fn process_apply_delete_respects_scoped_selectors() {
+        let initial = "# Roadmap\n\n## Future Features\n- [ ] Task Alpha\n- [ ] Task Beta\n- [ ] Task Gamma\n\n## Done\n- [x] Task Omega\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+
+        let operations = vec![Operation::Delete(DeleteOperation {
+            selector: TxSelector {
+                select_type: Some("li".to_string()),
+                select_contains: Some("Task Beta".to_string()),
+                select_regex: None,
+                select_ordinal: 1,
+                after: None,
+                within: Some(Box::new(TxSelector {
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Future Features".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                    after: None,
+                    within: None,
+                })),
+            },
+            comment: None,
+            section: false,
+            until: None,
+        })];
+
+        process_apply(&mut blocks, operations).expect("scoped delete succeeds");
+
+        let rendered = render_markdown(
+            &Document {
+                blocks: blocks.clone(),
+            },
+            PrinterConfig::default(),
+        );
+
+        assert!(rendered.contains("Task Alpha"));
+        assert!(!rendered.contains("Task Beta"));
+        assert!(rendered.contains("Task Gamma"));
+        assert!(rendered.contains("Task Omega"));
+    }
+
+    #[test]
     fn process_apply_is_atomic_when_operation_fails() {
         let initial = "# Project Tasks\n\nStatus: In Progress\n";
         let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
@@ -991,10 +1129,13 @@ mod tests {
                     select_contains: Some("Status: In Progress".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
+                    after: None,
+                    within: None,
                 },
                 comment: None,
                 content: Some("Status: **Complete**".to_string()),
                 content_file: None,
+                until: None,
             }),
             Operation::Delete(DeleteOperation {
                 selector: TxSelector {
@@ -1002,9 +1143,12 @@ mod tests {
                     select_contains: Some("Does Not Exist".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
+                    after: None,
+                    within: None,
                 },
                 comment: None,
                 section: false,
+                until: None,
             }),
         ];
 

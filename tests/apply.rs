@@ -38,7 +38,9 @@ fn apply_command_applies_replace_operation() {
             r#"[
     {
         "op": "replace",
-        "select_contains": "Replace me.",
+        "selector": {
+            "select_contains": "Replace me."
+        },
         "content": "Updated content."
     }
 ]"#,
@@ -71,12 +73,14 @@ fn apply_command_is_atomic_when_operation_fails() {
         .write_str(
             r#"-
   op: replace
-  select_contains: "Status: In Progress"
+  selector:
+    select_contains: "Status: In Progress"
   content: "Status: **Complete**"
 -
   op: delete
-  select_type: h2
-  select_contains: "Does Not Exist"
+  selector:
+    select_type: h2
+    select_contains: "Does Not Exist"
 "#,
         )
         .unwrap();
@@ -108,7 +112,9 @@ fn apply_command_supports_dry_run() {
             r#"[
     {
         "op": "replace",
-        "select_contains": "Replace me.",
+        "selector": {
+            "select_contains": "Replace me."
+        },
         "content": "Updated content."
     }
 ]"#,
@@ -150,7 +156,9 @@ fn apply_command_supports_diff_output() {
             r#"[
     {
         "op": "replace",
-        "select_contains": "Replace me.",
+        "selector": {
+            "select_contains": "Replace me."
+        },
         "content": "Updated content."
     }
 ]"#,
@@ -176,4 +184,86 @@ fn apply_command_supports_diff_output() {
 
     let current_content = std::fs::read_to_string(input_file.path()).unwrap();
     assert_eq!(current_content, original_content);
+}
+
+#[test]
+fn apply_command_supports_until_range() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("guide.md");
+    input_file
+        .write_str("# Guide\n\n## Installation\nStep one.\n\nStep two.\n\n## Usage\nUsage notes.\n")
+        .unwrap();
+
+    let operations_file = temp.child("ops.yaml");
+    operations_file
+        .write_str(
+            r#"-
+  op: replace
+  selector:
+    select_type: h2
+    select_contains: Installation
+  until:
+    select_type: h2
+    select_contains: Usage
+  content: |
+    ## Installation
+    Updated steps.
+"#,
+        )
+        .unwrap();
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .assert()
+        .success();
+
+    let content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert!(content.contains("Updated steps."));
+    assert!(!content.contains("Step one."));
+    assert!(content.contains("## Usage"));
+}
+
+#[test]
+fn apply_command_supports_scoped_selectors() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("roadmap.md");
+    input_file
+        .write_str(
+            "# Roadmap\n\n## Future Features\n- [ ] Task Alpha\n- [ ] Task Beta\n- [ ] Task Gamma\n\n## Done\n- [x] Task Omega\n",
+        )
+        .unwrap();
+
+    let operations_file = temp.child("ops.yaml");
+    operations_file
+        .write_str(
+            r#"-
+  op: delete
+  selector:
+    select_type: li
+    select_contains: Task Beta
+    within:
+      select_type: h2
+      select_contains: Future Features
+"#,
+        )
+        .unwrap();
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations-file")
+        .arg(operations_file.path())
+        .assert()
+        .success();
+
+    let content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert!(content.contains("Task Alpha"));
+    assert!(!content.contains("Task Beta"));
+    assert!(content.contains("Task Gamma"));
+    assert!(content.contains("Task Omega"));
 }

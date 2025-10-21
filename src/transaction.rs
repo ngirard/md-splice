@@ -27,11 +27,14 @@ pub struct Selector {
     pub select_regex: Option<String>,
     #[serde(default = "default_select_ordinal")]
     pub select_ordinal: usize,
+    #[serde(default)]
+    pub after: Option<Box<Selector>>,
+    #[serde(default)]
+    pub within: Option<Box<Selector>>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct InsertOperation {
-    #[serde(flatten)]
     pub selector: Selector,
     #[serde(default)]
     pub comment: Option<String>,
@@ -45,7 +48,6 @@ pub struct InsertOperation {
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct ReplaceOperation {
-    #[serde(flatten)]
     pub selector: Selector,
     #[serde(default)]
     pub comment: Option<String>,
@@ -53,16 +55,19 @@ pub struct ReplaceOperation {
     pub content: Option<String>,
     #[serde(default)]
     pub content_file: Option<PathBuf>,
+    #[serde(default)]
+    pub until: Option<Selector>,
 }
 
 #[derive(Debug, Deserialize, PartialEq)]
 pub struct DeleteOperation {
-    #[serde(flatten)]
     pub selector: Selector,
     #[serde(default)]
     pub comment: Option<String>,
     #[serde(default)]
     pub section: bool,
+    #[serde(default)]
+    pub until: Option<Selector>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
@@ -84,20 +89,26 @@ mod tests {
         [
             {
                 "op": "replace",
-                "select_contains": "Status: In Progress",
+                "selector": {
+                    "select_contains": "Status: In Progress"
+                },
                 "content": "Status: **Complete**"
             },
             {
                 "op": "insert",
-                "select_type": "li",
-                "select_contains": "Write documentation",
+                "selector": {
+                    "select_type": "li",
+                    "select_contains": "Write documentation"
+                },
                 "position": "before",
                 "content": "- [ ] Implement unit tests"
             },
             {
                 "op": "delete",
-                "select_type": "h2",
-                "select_contains": "Low Priority",
+                "selector": {
+                    "select_type": "h2",
+                    "select_contains": "Low Priority"
+                },
                 "section": true
             }
         ]
@@ -114,6 +125,8 @@ mod tests {
                 );
                 assert_eq!(op.content.as_deref(), Some("Status: **Complete**"));
                 assert!(op.content_file.is_none());
+                assert!(op.selector.after.is_none());
+                assert!(op.until.is_none());
             }
             other => panic!("expected replace operation, got {other:?}"),
         }
@@ -127,6 +140,7 @@ mod tests {
                 );
                 assert_eq!(op.position, InsertPosition::Before);
                 assert_eq!(op.content.as_deref(), Some("- [ ] Implement unit tests"));
+                assert!(op.selector.after.is_none());
             }
             other => panic!("expected insert operation, got {other:?}"),
         }
@@ -135,8 +149,64 @@ mod tests {
             Operation::Delete(op) => {
                 assert_eq!(op.selector.select_type.as_deref(), Some("h2"));
                 assert!(op.section);
+                assert!(op.until.is_none());
             }
             other => panic!("expected delete operation, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn deserialize_nested_scoped_selectors() {
+        let data = r#"
+        [
+            {
+                "op": "delete",
+                "selector": {
+                    "select_type": "p",
+                    "after": {
+                        "select_type": "h2",
+                        "select_contains": "Installation"
+                    },
+                    "within": {
+                        "select_type": "h1",
+                        "select_contains": "Guide"
+                    }
+                },
+                "until": {
+                    "select_type": "p",
+                    "select_contains": "Next Steps"
+                }
+            }
+        ]
+        "#;
+
+        let operations: Vec<Operation> = serde_yaml::from_str(data).unwrap();
+        assert_eq!(operations.len(), 1);
+
+        let Operation::Delete(op) = &operations[0] else {
+            panic!("expected delete operation");
+        };
+
+        let selector = &op.selector;
+        assert_eq!(selector.select_type.as_deref(), Some("p"));
+        assert!(selector.select_contains.is_none());
+
+        let after = selector
+            .after
+            .as_ref()
+            .expect("after selector should be present");
+        assert_eq!(after.select_type.as_deref(), Some("h2"));
+        assert_eq!(after.select_contains.as_deref(), Some("Installation"));
+
+        let within = selector
+            .within
+            .as_ref()
+            .expect("within selector should be present");
+        assert_eq!(within.select_type.as_deref(), Some("h1"));
+        assert_eq!(within.select_contains.as_deref(), Some("Guide"));
+
+        let until = op.until.as_ref().expect("until selector should be present");
+        assert_eq!(until.select_type.as_deref(), Some("p"));
+        assert_eq!(until.select_contains.as_deref(), Some("Next Steps"));
     }
 }
