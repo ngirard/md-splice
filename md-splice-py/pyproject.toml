@@ -5,12 +5,16 @@ build-backend = "maturin"
 [project]
 name = "md-splice"
 version = "0.5.0"
-description = "Python bindings for md-splice"
+description = "Python bindings for the md-splice Markdown editing toolkit"
 readme = "README.md"
 requires-python = ">=3.8"
 authors = [{ name = "md-splice maintainers" }]
-license = { file = "../LICENSE" }
+license = { file = "LICENSE" }
+keywords = ["markdown", "ast", "editor", "automation", "tooling"]
 classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -21,8 +25,16 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Text Processing :: Markup",
+    "Topic :: Utilities",
     "Operating System :: OS Independent",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ngirard/md-splice"
+Repository = "https://github.com/ngirard/md-splice"
+Documentation = "https://github.com/ngirard/md-splice/tree/main/goal-Python-library"
+Changelog = "https://github.com/ngirard/md-splice/tree/main/md-splice-py/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
@@ -34,3 +46,12 @@ dev = [
 bindings = "pyo3"
 module-name = "md_splice._native"
 python-source = "."
+sdist-include = [
+    "Cargo.toml",
+    "LICENSE",
+    "README.md",
+    "CHANGELOG.md",
+    "src/**",
+    "md_splice/**",
+    "pyproject.toml",
+]

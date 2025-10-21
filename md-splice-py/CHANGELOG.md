@@ -6,6 +6,12 @@ and the project adheres to semantic versioning in lockstep with the Rust core.
 
 ## [Unreleased]
 
+### Packaging
+- Added complete project metadata (license, homepage, repository URLs) to the
+  Python `pyproject.toml` and Rust crates to satisfy `cargo package` checks.
+- Include the license, README, and changelog in source distributions
+  so PyPI uploads mirror the Rust release.
+
 ## [0.5.0] - 2025-10-21
 
 ### Added

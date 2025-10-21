@@ -87,3 +87,9 @@ update 16
 - Raised the Python package and native crate versions to `0.5.0` so `__version__` mirrors the Rust core as required by the specification.
 - Updated the import smoke test and changelog release notes to track the aligned versioning.
 - Next: prepare distribution metadata (wheels, sdist) for publication under the synchronized version tag.
+
+update 17
+- Added full distribution metadata to `pyproject.toml` and both Rust crates (license, homepage, repository, docs) so `cargo package` and PyPI uploads succeed.
+- Copied the license into the Python package and taught `maturin` to bundle the README and changelog when building sdists.
+- Documented the wheel/sdist build workflow in the Python README and verified `maturin build --release`, `maturin sdist`, and the pytest suite inside a fresh `.venv`.
+- Next: script the multi-platform wheel build matrix (CI) ahead of the first PyPI release.
