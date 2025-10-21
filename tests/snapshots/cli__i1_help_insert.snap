@@ -1,6 +1,5 @@
 ---
 source: tests/cli.rs
-assertion_line: 38
 expression: redact_version(&stdout)
 ---
 Insert new Markdown content at a specified position
@@ -33,6 +32,39 @@ Options:
           Select the Nth matching node (1-indexed). Default is 1
           
           [default: 1]
+
+      --after-select-type <TYPE>
+          Restrict the search to the first match that occurs after another selector
+
+      --after-select-contains <TEXT>
+          Restrict the search to the first match that occurs after another selector
+
+      --after-select-regex <REGEX>
+          Restrict the search to the first match that occurs after another selector
+
+      --after-select-ordinal <N>
+          Choose the Nth landmark match for the `--after` selector (1-indexed)
+
+      --within-select-type <TYPE>
+          Restrict the search to nodes contained within another selector
+
+      --within-select-contains <TEXT>
+          Restrict the search to nodes contained within another selector
+
+      --within-select-regex <REGEX>
+          Restrict the search to nodes contained within another selector
+
+      --within-select-ordinal <N>
+          Choose the Nth landmark match for the `--within` selector (1-indexed)
+
+      --until-type <TYPE>
+          Select nodes up to (but not including) another selector
+
+      --until-contains <TEXT>
+          Select nodes up to (but not including) another selector
+
+      --until-regex <REGEX>
+          Select nodes up to (but not including) another selector
 
   -p, --position <POSITION>
           Position for the 'insert' operation

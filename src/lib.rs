@@ -37,6 +37,99 @@ enum OutputMode {
     Diff,
 }
 
+fn compile_optional_regex(pattern: Option<String>, context: &str) -> anyhow::Result<Option<Regex>> {
+    pattern
+        .map(|pattern| {
+            Regex::new(&pattern).with_context(|| format!("Invalid regex pattern for {context}"))
+        })
+        .transpose()
+}
+
+fn build_optional_scope_selector(
+    context: &str,
+    select_type: Option<String>,
+    select_contains: Option<String>,
+    select_regex: Option<String>,
+    select_ordinal: Option<usize>,
+) -> anyhow::Result<Option<Selector>> {
+    if select_type.is_none()
+        && select_contains.is_none()
+        && select_regex.is_none()
+        && select_ordinal.is_none()
+    {
+        return Ok(None);
+    }
+
+    let select_regex = compile_optional_regex(select_regex, context)?;
+
+    Ok(Some(Selector {
+        select_type,
+        select_contains,
+        select_regex,
+        select_ordinal: select_ordinal.unwrap_or(1),
+        after: None,
+        within: None,
+    }))
+}
+
+fn build_primary_selector(
+    select_type: Option<String>,
+    select_contains: Option<String>,
+    select_regex: Option<String>,
+    select_ordinal: usize,
+    after: Option<Selector>,
+    within: Option<Selector>,
+) -> anyhow::Result<Selector> {
+    let select_regex = compile_optional_regex(select_regex, "--select-regex")?;
+
+    Ok(Selector {
+        select_type,
+        select_contains,
+        select_regex,
+        select_ordinal,
+        after: after.map(Box::new),
+        within: within.map(Box::new),
+    })
+}
+
+fn build_until_selector(
+    select_type: Option<String>,
+    select_contains: Option<String>,
+    select_regex: Option<String>,
+) -> anyhow::Result<Option<Selector>> {
+    if select_type.is_none() && select_contains.is_none() && select_regex.is_none() {
+        return Ok(None);
+    }
+
+    let select_regex = compile_optional_regex(select_regex, "--until-regex")?;
+
+    Ok(Some(Selector {
+        select_type,
+        select_contains,
+        select_regex,
+        select_ordinal: 1,
+        after: None,
+        within: None,
+    }))
+}
+
+fn compute_range_end(
+    blocks: &[Block],
+    start_index: usize,
+    until_selector: &Selector,
+) -> anyhow::Result<usize> {
+    if start_index + 1 >= blocks.len() {
+        return Ok(blocks.len());
+    }
+
+    match locate(&blocks[start_index + 1..], until_selector) {
+        Ok((FoundNode::Block { index, .. }, _)) => Ok(start_index + 1 + index),
+        Ok((FoundNode::ListItem { .. }, _)) => Err(SpliceError::RangeRequiresBlock.into()),
+        Err(SpliceError::NodeNotFound) => Ok(blocks.len()),
+        Err(other) => Err(other.into()),
+    }
+}
+
 /// The main entry point for the application logic.
 pub fn run() -> anyhow::Result<()> {
     // Initialize the logger. This will be configured by the RUST_LOG environment variable.
@@ -403,22 +496,52 @@ fn process_insert_or_replace(
         select_contains,
         select_regex,
         select_ordinal,
+        after_select_type,
+        after_select_contains,
+        after_select_regex,
+        after_select_ordinal,
+        within_select_type,
+        within_select_contains,
+        within_select_regex,
+        within_select_ordinal,
+        until_type,
+        until_contains,
+        until_regex,
         position,
     } = args;
 
-    let select_regex = if let Some(pattern) = select_regex {
-        Some(Regex::new(&pattern).context("Invalid regex pattern for --select-regex")?)
-    } else {
-        None
-    };
+    if !is_replace && (until_type.is_some() || until_contains.is_some() || until_regex.is_some()) {
+        return Err(anyhow!(
+            "The --until-* flags can only be used with the 'replace' command"
+        ));
+    }
 
-    let selector = Selector {
+    let after_selector = build_optional_scope_selector(
+        "--after-select-regex",
+        after_select_type,
+        after_select_contains,
+        after_select_regex,
+        after_select_ordinal,
+    )?;
+
+    let within_selector = build_optional_scope_selector(
+        "--within-select-regex",
+        within_select_type,
+        within_select_contains,
+        within_select_regex,
+        within_select_ordinal,
+    )?;
+
+    let selector = build_primary_selector(
         select_type,
         select_contains,
         select_regex,
         select_ordinal,
-        ..Default::default()
-    };
+        after_selector,
+        within_selector,
+    )?;
+
+    let until_selector = build_until_selector(until_type, until_contains, until_regex)?;
 
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
@@ -451,7 +574,12 @@ fn process_insert_or_replace(
     match found_node {
         FoundNode::Block { index, .. } => {
             if is_replace {
-                replace(doc_blocks, index, new_blocks);
+                if let Some(until_selector) = until_selector.as_ref() {
+                    let end_index = compute_range_end(doc_blocks, index, until_selector)?;
+                    doc_blocks.splice(index..end_index, new_blocks);
+                } else {
+                    replace(doc_blocks, index, new_blocks);
+                }
             } else {
                 insert(doc_blocks, index, new_blocks, position)?;
             }
@@ -462,6 +590,9 @@ fn process_insert_or_replace(
             ..
         } => {
             if is_replace {
+                if until_selector.is_some() {
+                    return Err(SpliceError::RangeRequiresBlock.into());
+                }
                 replace_list_item(doc_blocks, block_index, item_index, new_blocks)?;
             } else {
                 insert_list_item(doc_blocks, block_index, item_index, new_blocks, position)?;
@@ -478,24 +609,48 @@ fn process_get(doc_blocks: &[Block], args: GetArgs) -> anyhow::Result<()> {
         select_contains,
         select_regex,
         select_ordinal,
+        after_select_type,
+        after_select_contains,
+        after_select_regex,
+        after_select_ordinal,
+        within_select_type,
+        within_select_contains,
+        within_select_regex,
+        within_select_ordinal,
+        until_type,
+        until_contains,
+        until_regex,
         section,
         select_all,
         separator,
     } = args;
 
-    let select_regex = if let Some(pattern) = select_regex {
-        Some(Regex::new(&pattern).context("Invalid regex pattern for --select-regex")?)
-    } else {
-        None
-    };
+    let after_selector = build_optional_scope_selector(
+        "--after-select-regex",
+        after_select_type,
+        after_select_contains,
+        after_select_regex,
+        after_select_ordinal,
+    )?;
 
-    let selector = Selector {
+    let within_selector = build_optional_scope_selector(
+        "--within-select-regex",
+        within_select_type,
+        within_select_contains,
+        within_select_regex,
+        within_select_ordinal,
+    )?;
+
+    let selector = build_primary_selector(
         select_type,
         select_contains,
         select_regex,
         select_ordinal,
-        ..Default::default()
-    };
+        after_selector,
+        within_selector,
+    )?;
+
+    let until_selector = build_until_selector(until_type, until_contains, until_regex)?;
 
     if select_all {
         let matches = locate_all(doc_blocks, &selector)?;
@@ -536,10 +691,23 @@ fn process_get(doc_blocks: &[Block], args: GetArgs) -> anyhow::Result<()> {
 
     let (found_node, _) = locate(doc_blocks, &selector)?;
     let mut stdout = io::stdout().lock();
-    let rendered = if section {
-        render_heading_section(doc_blocks, &found_node)?
-    } else {
-        render_found_node(doc_blocks, &found_node)?
+    let rendered = match &found_node {
+        FoundNode::Block { index, .. } => {
+            if let Some(until_selector) = until_selector.as_ref() {
+                let end_index = compute_range_end(doc_blocks, *index, until_selector)?;
+                render_blocks(&doc_blocks[*index..end_index])
+            } else if section {
+                render_heading_section(doc_blocks, &found_node)?
+            } else {
+                render_found_node(doc_blocks, &found_node)?
+            }
+        }
+        FoundNode::ListItem { .. } => {
+            if until_selector.is_some() {
+                return Err(SpliceError::RangeRequiresBlock.into());
+            }
+            render_found_node(doc_blocks, &found_node)?
+        }
     };
     stdout.write_all(rendered.as_bytes())?;
     stdout.flush()?;
@@ -598,22 +766,46 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
         select_contains,
         select_regex,
         select_ordinal,
+        after_select_type,
+        after_select_contains,
+        after_select_regex,
+        after_select_ordinal,
+        within_select_type,
+        within_select_contains,
+        within_select_regex,
+        within_select_ordinal,
+        until_type,
+        until_contains,
+        until_regex,
         section,
     } = args;
 
-    let select_regex = if let Some(pattern) = select_regex {
-        Some(Regex::new(&pattern).context("Invalid regex pattern for --select-regex")?)
-    } else {
-        None
-    };
+    let after_selector = build_optional_scope_selector(
+        "--after-select-regex",
+        after_select_type,
+        after_select_contains,
+        after_select_regex,
+        after_select_ordinal,
+    )?;
 
-    let selector = Selector {
+    let within_selector = build_optional_scope_selector(
+        "--within-select-regex",
+        within_select_type,
+        within_select_contains,
+        within_select_regex,
+        within_select_ordinal,
+    )?;
+
+    let selector = build_primary_selector(
         select_type,
         select_contains,
         select_regex,
         select_ordinal,
-        ..Default::default()
-    };
+        after_selector,
+        within_selector,
+    )?;
+
+    let until_selector = build_until_selector(until_type, until_contains, until_regex)?;
 
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
@@ -625,7 +817,10 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
 
     match found_node {
         FoundNode::Block { index, block } => {
-            if section {
+            if let Some(until_selector) = until_selector.as_ref() {
+                let end_index = compute_range_end(doc_blocks, index, until_selector)?;
+                doc_blocks.drain(index..end_index);
+            } else if section {
                 if matches!(block, Block::Heading(_)) {
                     delete_section(doc_blocks, index);
                 } else {
@@ -640,6 +835,9 @@ fn process_delete(doc_blocks: &mut Vec<Block>, args: DeleteArgs) -> anyhow::Resu
             item_index,
             ..
         } => {
+            if until_selector.is_some() {
+                return Err(SpliceError::RangeRequiresBlock.into());
+            }
             if section {
                 return Err(SpliceError::InvalidSectionDelete.into());
             }

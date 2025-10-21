@@ -32,4 +32,7 @@ pub enum SpliceError {
 
     #[error("Cannot combine --after-* and --within-* selectors in the same query.")]
     ConflictingScopeModifiers,
+
+    #[error("Range selectors are only supported for block-level selections.")]
+    RangeRequiresBlock,
 }
