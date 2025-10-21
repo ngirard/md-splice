@@ -226,6 +226,7 @@ fn block_type_name(block: &Block) -> &'static str {
         Block::Definition(_) => "Definition",
         Block::Table(_) => "Table",
         Block::FootnoteDefinition(_) => "FootnoteDefinition",
+        Block::GitHubAlert(_) => "GitHubAlert",
         Block::Empty => "Empty",
     }
 }
