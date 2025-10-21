@@ -1,6 +1,7 @@
 from md_splice import (
     MarkdownDocument,
     MdSpliceError,
+    NodeNotFoundError,
     __version__,
     dumps_operations,
     loads_operations,
@@ -30,3 +31,8 @@ def test_error_type_exposed():
 def test_operation_serializers_available() -> None:
     assert callable(loads_operations)
     assert callable(dumps_operations)
+
+
+def test_error_docstrings_present() -> None:
+    assert "md-splice Python bindings" in MdSpliceError.__doc__
+    assert "selector fails" in NodeNotFoundError.__doc__

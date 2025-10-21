@@ -1,8 +1,34 @@
-"""Python bindings for the md-splice Markdown editing toolkit."""
+"""Python bindings for the md-splice Markdown editing toolkit.
 
+The package re-exports the native ``MarkdownDocument`` type, helper operations,
+and the rich exception hierarchy defined for the Rust core bindings.
+"""
+
+from . import errors
+from .errors import (
+    AmbiguousContentSourceError,
+    AmbiguousStdinSourceError,
+    ConflictingScopeError,
+    FrontmatterKeyNotFoundError,
+    FrontmatterMissingError,
+    FrontmatterParseError,
+    FrontmatterSerializeError,
+    InvalidChildInsertionError,
+    InvalidListItemContentError,
+    InvalidRegexError,
+    InvalidSectionDeleteError,
+    IoError,
+    MarkdownParseError,
+    MdSpliceError,
+    NoContentError,
+    NodeNotFoundError,
+    OperationFailedError,
+    OperationParseError,
+    RangeRequiresBlockError,
+    SectionRequiresHeadingError,
+)
 from ._native import (
     MarkdownDocument,
-    MdSpliceError,
     __version__,
     diff_unified,
     dumps_operations,
@@ -23,7 +49,6 @@ from .types import (
 
 __all__ = [
     "MarkdownDocument",
-    "MdSpliceError",
     "diff_unified",
     "loads_operations",
     "dumps_operations",
@@ -39,3 +64,29 @@ __all__ = [
     "Operation",
     "__version__",
 ]
+
+__all__.extend(
+    [
+        "MdSpliceError",
+        "NodeNotFoundError",
+        "InvalidChildInsertionError",
+        "AmbiguousContentSourceError",
+        "NoContentError",
+        "InvalidListItemContentError",
+        "AmbiguousStdinSourceError",
+        "InvalidSectionDeleteError",
+        "SectionRequiresHeadingError",
+        "ConflictingScopeError",
+        "RangeRequiresBlockError",
+        "FrontmatterMissingError",
+        "FrontmatterKeyNotFoundError",
+        "FrontmatterParseError",
+        "FrontmatterSerializeError",
+        "MarkdownParseError",
+        "OperationParseError",
+        "OperationFailedError",
+        "IoError",
+        "InvalidRegexError",
+        "errors",
+    ]
+)
