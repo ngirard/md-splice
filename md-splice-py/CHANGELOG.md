@@ -16,6 +16,10 @@ and the project adheres to semantic versioning in lockstep with the Rust core.
 - Exception hierarchy that maps Rust ``SpliceError`` variants to Python classes
   for precise error handling.
 
+### Changed
+- ``write_in_place(backup=True)`` now creates ``path~`` backups to match the
+  specification's durability requirements.
+
 ### Documentation
 - Detailed docstrings across the public API, including selector flag semantics
   and transactional guarantees.
