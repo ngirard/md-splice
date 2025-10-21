@@ -41,4 +41,22 @@ pub enum SpliceError {
 
     #[error("Frontmatter key '{0}' was not found.")]
     FrontmatterKeyNotFound(String),
+
+    #[error("Failed to parse frontmatter: {0}")]
+    FrontmatterParse(String),
+
+    #[error("Failed to serialize frontmatter: {0}")]
+    FrontmatterSerialize(String),
+
+    #[error("Failed to parse Markdown: {0}")]
+    MarkdownParse(String),
+
+    #[error("Failed to parse operations: {0}")]
+    OperationParse(String),
+
+    #[error("Operation failed: {0}")]
+    OperationFailed(String),
+
+    #[error("I/O error: {0}")]
+    Io(String),
 }
