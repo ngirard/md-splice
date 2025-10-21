@@ -34,19 +34,19 @@ APPLY OPTIONS:
     -O, --operations-file <PATH>  Path to a JSON or YAML file containing the operations. Use '-' to read from stdin.
         --operations <JSON_STRING>  A JSON string containing the array of operations.
         --dry-run                   Process all operations and print the final Markdown to stdout without writing to any file.
-        --diff                      Show a diff of the changes instead of writing the file. Implies --dry-run if --output is not set.
+        --diff                      Show a unified diff of the changes instead of writing the file.
 ```
 
 ### Key UX Decisions:
 
 1.  **Command Name:** `apply` is a clear, action-oriented verb that accurately describes applying a set of changes.
 2.  **Input Flexibility:**
-    * `--operations-file <PATH>` is the primary, recommended method for clarity and version control.
-    * Supporting `-` for stdin (`--operations-file -`) follows standard CLI conventions.
+    * `--operations-file <PATH>` is the primary, recommended method for clarity and version control. Passing `-` reads operations from `stdin`.
     * `--operations <JSON_STRING>` provides a convenient inline option for simple scripts or programmatic calls where creating a file is cumbersome.
+    * Exactly one of `--operations-file` or `--operations` must be supplied. Providing neither should produce a user-facing error message.
 3.  **Safety and Introspection:**
-    * `--dry-run` is a critical safety feature, allowing users to preview the result before committing any changes.
-    * `--diff` provides immediate, actionable feedback on what the transaction *will do* or *did*, which is invaluable for debugging and verification.
+    * `--dry-run` is a critical safety feature, allowing users to preview the rendered Markdown result before committing any changes.
+    * `--diff` provides immediate, actionable feedback on what the transaction *will do* or *did*, which is invaluable for debugging and verification. The diff uses the unified format with `original`/`modified` headers and never writes to disk.
 
 ### Example Usage
 

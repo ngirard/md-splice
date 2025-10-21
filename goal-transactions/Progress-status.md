@@ -14,5 +14,10 @@
   `apply_command_supports_diff_output`) with snapshot coverage. Commands executed:
   `cargo test apply_command_supports_ -- --nocapture`, `cargo test` (both pass).
 
-Remaining: Phase 6
+- update 09: Finished Strategy Phase 6 (Steps 6.1–6.3) by documenting the `apply` workflow.
+  Updated `README.md` with transaction usage guidance, operations file structure, examples,
+  and command reference entries, and refreshed `Transactions-specification.md` with clarified
+  CLI behaviors. (Documentation change; no tests run.)
+
+Remaining: None — documentation phase complete and multi-operation support fully delivered.
 
