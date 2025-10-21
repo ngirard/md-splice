@@ -5,9 +5,14 @@ from __future__ import annotations
 from textwrap import dedent
 
 import pytest
+import re
 
 from md_splice import MarkdownDocument, Selector
-from md_splice.errors import RangeRequiresBlockError, SectionRequiresHeadingError
+from md_splice.errors import (
+    InvalidRegexError,
+    RangeRequiresBlockError,
+    SectionRequiresHeadingError,
+)
 
 
 def test_get_returns_single_block_by_contains():
@@ -156,3 +161,64 @@ def test_get_select_all_returns_empty_list_when_no_matches():
     result = doc.get(Selector(select_type="h2"), select_all=True)
 
     assert result == []
+
+
+def test_get_respects_regex_ignore_case_flag():
+    doc = MarkdownDocument.from_string(
+        dedent(
+            """
+            Paragraph One.
+
+            Another block with beta token.
+            """
+        ).lstrip()
+    )
+
+    pattern = re.compile(r"beta", re.IGNORECASE)
+    result = doc.get(Selector(select_type="p", select_regex=pattern))
+
+    assert "beta token" in result
+
+
+def test_get_respects_regex_multiline_flag():
+    doc = MarkdownDocument.from_string(
+        dedent(
+            """
+            ```
+            Alpha
+            Beta
+            ```
+            """
+        ).lstrip()
+    )
+
+    pattern = re.compile(r"^Beta$", re.MULTILINE)
+    result = doc.get(Selector(select_type="code", select_regex=pattern))
+
+    assert "Beta" in result
+
+
+def test_get_respects_regex_dotall_flag():
+    doc = MarkdownDocument.from_string(
+        dedent(
+            """
+            ```
+            Alpha
+            Gamma
+            ```
+            """
+        ).lstrip()
+    )
+
+    pattern = re.compile(r"Alpha.*Gamma", re.DOTALL)
+    result = doc.get(Selector(select_type="code", select_regex=pattern))
+
+    assert "Alpha" in result and "Gamma" in result
+
+
+def test_get_rejects_unsupported_regex_flags():
+    doc = MarkdownDocument.from_string("Paragraph.\n")
+    pattern = re.compile(r"paragraph", re.VERBOSE)
+
+    with pytest.raises(InvalidRegexError):
+        doc.get(Selector(select_type="p", select_regex=pattern))
