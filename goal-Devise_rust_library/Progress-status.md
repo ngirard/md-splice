@@ -1,0 +1,1 @@
+update 01: Completed Step 1 workspace restructuring. Established a Cargo workspace with `md-splice-lib` (library) and `md-splice` (binary) members, migrated source files accordingly, relocated integration tests under the binary crate, updated fixture paths, and verified the build with `cargo build --workspace` and `cargo test --workspace`.
