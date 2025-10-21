@@ -1,11 +1,13 @@
 """Python bindings for the md-splice Markdown editing toolkit."""
 
 from ._native import MarkdownDocument, MdSpliceError, __version__
-from .types import FrontmatterFormat
+from .types import FrontmatterFormat, InsertPosition, Selector
 
 __all__ = [
     "MarkdownDocument",
     "MdSpliceError",
+    "InsertPosition",
+    "Selector",
     "FrontmatterFormat",
     "__version__",
 ]

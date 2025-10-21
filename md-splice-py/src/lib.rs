@@ -65,7 +65,63 @@ fn _native(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 fn map_splice_error(err: SpliceError) -> PyErr {
-    MdSpliceError::new_err(err.to_string())
+    Python::with_gil(|py| match map_splice_error_inner(py, &err) {
+        Ok(py_err) => py_err,
+        Err(_) => MdSpliceError::new_err(err.to_string()),
+    })
+}
+
+fn map_splice_error_inner(py: Python<'_>, err: &SpliceError) -> PyResult<PyErr> {
+    let errors_module = PyModule::import_bound(py, "md_splice.errors")?;
+    let (class_name, message) = match err {
+        SpliceError::NodeNotFound => ("NodeNotFoundError", err.to_string()),
+        SpliceError::InvalidChildInsertion(_) => {
+            ("InvalidChildInsertionError", err.to_string())
+        }
+        SpliceError::AmbiguousContentSource => {
+            ("AmbiguousContentSourceError", err.to_string())
+        }
+        SpliceError::NoContent => ("NoContentError", err.to_string()),
+        SpliceError::InvalidListItemContent => {
+            ("InvalidListItemContentError", err.to_string())
+        }
+        SpliceError::AmbiguousStdinSource => {
+            ("AmbiguousStdinSourceError", err.to_string())
+        }
+        SpliceError::InvalidSectionDelete => {
+            ("InvalidSectionDeleteError", err.to_string())
+        }
+        SpliceError::SectionRequiresHeading => {
+            ("SectionRequiresHeadingError", err.to_string())
+        }
+        SpliceError::ConflictingScopeModifiers => {
+            ("ConflictingScopeError", err.to_string())
+        }
+        SpliceError::RangeRequiresBlock => {
+            ("RangeRequiresBlockError", err.to_string())
+        }
+        SpliceError::FrontmatterMissing => {
+            ("FrontmatterMissingError", err.to_string())
+        }
+        SpliceError::FrontmatterKeyNotFound(_) => {
+            ("FrontmatterKeyNotFoundError", err.to_string())
+        }
+        SpliceError::FrontmatterParse(_) => {
+            ("FrontmatterParseError", err.to_string())
+        }
+        SpliceError::FrontmatterSerialize(_) => {
+            ("FrontmatterSerializeError", err.to_string())
+        }
+        SpliceError::MarkdownParse(_) => ("MarkdownParseError", err.to_string()),
+        SpliceError::OperationParse(_) => ("OperationParseError", err.to_string()),
+        SpliceError::OperationFailed(_) => ("OperationFailedError", err.to_string()),
+        SpliceError::Io(_) => ("IoError", err.to_string()),
+    };
+
+    let error_type = errors_module
+        .getattr(class_name)?
+        .downcast_into::<PyType>()?;
+    Ok(PyErr::from_type_bound(error_type, (message,)))
 }
 
 fn yaml_value_to_py(py: Python<'_>, value: &YamlValue) -> PyResult<PyObject> {

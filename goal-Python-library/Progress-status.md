@@ -11,3 +11,8 @@ update 02
 - Added Python `FrontmatterFormat` enum and exposed `MarkdownDocument.frontmatter_format()` with Rust-to-Python mapping.
 - Created frontmatter-focused pytest suite (YAML/TOML/empty) and verified via `maturin develop` + `pytest` in a dedicated venv.
 - Next: expand selector dataclasses/enums and error mapping to mirror Rust semantics (Milestone 3).
+update 03
+- Added Python `Selector` dataclass with validation, `InsertPosition` enum, and regex compilation to align with Milestone 3 data model needs.
+- Expanded Python error hierarchy and implemented Rust-to-Python exception mapping so core errors surface as typed subclasses.
+- Introduced selector-focused pytest coverage and error mapping regression test, all passing under `maturin develop` + `.venv/bin/python -m pytest`.
+- Next: wire selectors into native `get`/operation bindings and continue fleshing out operation dataclasses.
