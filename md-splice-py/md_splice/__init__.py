@@ -1,5 +1,11 @@
-"""Python bindings for the md-splice Markdown editing toolkit."""
+"""Python bindings for the md-splice Markdown editing toolkit.
 
+This module mirrors the public surface documented in
+``goal-Python-library/Specification.md`` by re-exporting the native
+``MarkdownDocument`` type, operation helpers, and the rich exception hierarchy.
+"""
+
+from . import errors as errors
 from ._native import (
     MarkdownDocument,
     MdSpliceError,
@@ -37,5 +43,13 @@ __all__ = [
     "DeleteFrontmatterOperation",
     "ReplaceFrontmatterOperation",
     "Operation",
+    "errors",
     "__version__",
 ]
+
+for _name in errors.__all__:
+    globals()[_name] = getattr(errors, _name)
+    if _name not in __all__:
+        __all__.append(_name)
+
+del _name
