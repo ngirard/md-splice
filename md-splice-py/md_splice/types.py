@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import re
-from typing import Pattern
+from typing import Any, Pattern, Union
 
 from .errors import ConflictingScopeError, InvalidRegexError
 
@@ -62,4 +62,76 @@ class Selector:
             )
 
 
-__all__ = ["FrontmatterFormat", "InsertPosition", "Selector"]
+@dataclass(frozen=True, slots=True)
+class InsertOperation:
+    """Insert Markdown content relative to a selector."""
+
+    selector: Selector
+    content: str | None = None
+    position: InsertPosition = InsertPosition.AFTER
+
+
+@dataclass(frozen=True, slots=True)
+class ReplaceOperation:
+    """Replace Markdown matched by a selector, optionally up to an `until` selector."""
+
+    selector: Selector
+    content: str | None = None
+    until: Selector | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteOperation:
+    """Delete Markdown matched by a selector."""
+
+    selector: Selector
+    section: bool = False
+    until: Selector | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class SetFrontmatterOperation:
+    """Assign a value at the given frontmatter key path."""
+
+    key: str
+    value: Any
+    format: FrontmatterFormat | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DeleteFrontmatterOperation:
+    """Remove a key from document frontmatter."""
+
+    key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReplaceFrontmatterOperation:
+    """Replace the entire frontmatter payload."""
+
+    content: Any
+    format: FrontmatterFormat | None = None
+
+
+Operation = Union[
+    InsertOperation,
+    ReplaceOperation,
+    DeleteOperation,
+    SetFrontmatterOperation,
+    DeleteFrontmatterOperation,
+    ReplaceFrontmatterOperation,
+]
+
+
+__all__ = [
+    "FrontmatterFormat",
+    "InsertPosition",
+    "Selector",
+    "InsertOperation",
+    "ReplaceOperation",
+    "DeleteOperation",
+    "SetFrontmatterOperation",
+    "DeleteFrontmatterOperation",
+    "ReplaceFrontmatterOperation",
+    "Operation",
+]
