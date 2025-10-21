@@ -33,6 +33,8 @@ pub enum Command {
     Delete(DeleteArgs),
     /// Read Markdown content matching a selector without modifying the file.
     Get(GetArgs),
+    /// Apply a sequence of transactional operations to the document.
+    Apply(ApplyArgs),
 }
 
 #[derive(Parser, Debug)]
@@ -142,6 +144,26 @@ pub struct GetArgs {
         allow_hyphen_values = true
     )]
     pub separator: String,
+}
+
+/// Arguments for the `apply` command.
+#[derive(Parser, Debug)]
+pub struct ApplyArgs {
+    /// Path to a JSON or YAML file containing the operations. Use '-' for stdin.
+    #[arg(short = 'O', long, value_name = "PATH", conflicts_with = "operations")]
+    pub operations_file: Option<PathBuf>,
+
+    /// JSON string describing the operations inline.
+    #[arg(long, value_name = "JSON_STRING", conflicts_with = "operations_file")]
+    pub operations: Option<String>,
+
+    /// Preview the result without writing any files.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Show a diff of the pending changes instead of writing files.
+    #[arg(long)]
+    pub diff: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug, PartialEq, Eq)]
