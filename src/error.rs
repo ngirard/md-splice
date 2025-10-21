@@ -29,4 +29,7 @@ pub enum SpliceError {
 
     #[error("The --section flag can only be used when targeting a heading (h1-h6).")]
     SectionRequiresHeading,
+
+    #[error("Cannot combine --after-* and --within-* selectors in the same query.")]
+    ConflictingScopeModifiers,
 }

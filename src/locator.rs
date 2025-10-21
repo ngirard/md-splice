@@ -27,6 +27,8 @@ pub struct Selector {
     pub select_contains: Option<String>,
     pub select_regex: Option<Regex>,
     pub select_ordinal: usize,
+    pub after: Option<Box<Selector>>,
+    pub within: Option<Box<Selector>>,
 }
 
 /// Checks if a type string refers to a list item.
@@ -62,6 +64,195 @@ pub(crate) fn list_item_to_text(item: &ListItem) -> String {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Scope {
+    block_start: usize,
+    block_end: usize,
+    list_restriction: Option<ListRestriction>,
+}
+
+impl Scope {
+    fn entire_document(len: usize) -> Self {
+        Self {
+            block_start: 0,
+            block_end: len,
+            list_restriction: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ListRestriction {
+    block_index: usize,
+    start_item: Option<usize>,
+}
+
+fn heading_level(kind: &HeadingKind) -> usize {
+    match kind {
+        HeadingKind::Atx(level) => usize::from(*level),
+        HeadingKind::Setext(SetextHeading::Level1) => 1,
+        HeadingKind::Setext(SetextHeading::Level2) => 2,
+    }
+}
+
+fn find_section_end(blocks: &[Block], heading_index: usize, level: usize) -> usize {
+    let mut end = blocks.len();
+    for (idx, block) in blocks.iter().enumerate().skip(heading_index + 1) {
+        if let Block::Heading(h) = block {
+            if heading_level(&h.kind) <= level {
+                end = idx;
+                break;
+            }
+        }
+    }
+    end
+}
+
+fn apply_scope<'a>(blocks: &'a [Block], selector: &Selector) -> Result<Scope, SpliceError> {
+    if selector.after.is_some() && selector.within.is_some() {
+        return Err(SpliceError::ConflictingScopeModifiers);
+    }
+
+    if let Some(after_selector) = selector.after.as_ref() {
+        let (landmark, _) = locate(blocks, after_selector)?;
+        match landmark {
+            FoundNode::Block { index, .. } => Ok(Scope {
+                block_start: index.saturating_add(1),
+                block_end: blocks.len(),
+                list_restriction: None,
+            }),
+            FoundNode::ListItem {
+                block_index,
+                item_index,
+                ..
+            } => Ok(Scope {
+                block_start: block_index.saturating_add(1),
+                block_end: blocks.len(),
+                list_restriction: Some(ListRestriction {
+                    block_index,
+                    start_item: Some(item_index),
+                }),
+            }),
+        }
+    } else if let Some(within_selector) = selector.within.as_ref() {
+        let (landmark, _) = locate(blocks, within_selector)?;
+        match landmark {
+            FoundNode::Block { index, block } => match block {
+                Block::Heading(heading) => {
+                    let level = heading_level(&heading.kind);
+                    let start = index.saturating_add(1);
+                    let end = find_section_end(blocks, index, level);
+                    Ok(Scope {
+                        block_start: start,
+                        block_end: end,
+                        list_restriction: None,
+                    })
+                }
+                Block::List(_) => Ok(Scope {
+                    block_start: index,
+                    block_end: index + 1,
+                    list_restriction: Some(ListRestriction {
+                        block_index: index,
+                        start_item: None,
+                    }),
+                }),
+                _ => Err(SpliceError::NodeNotFound),
+            },
+            FoundNode::ListItem { .. } => Err(SpliceError::NodeNotFound),
+        }
+    } else {
+        Ok(Scope::entire_document(blocks.len()))
+    }
+}
+
+fn block_matches_selector(block: &Block, selector: &Selector) -> bool {
+    if let Some(type_str) = &selector.select_type {
+        if !block_type_matches(block, type_str) {
+            return false;
+        }
+    }
+
+    if selector.select_contains.is_some() || selector.select_regex.is_some() {
+        let text_content = block_to_text(block);
+
+        if let Some(contains_str) = &selector.select_contains {
+            if !text_content.contains(contains_str) {
+                return false;
+            }
+        }
+
+        if let Some(re) = &selector.select_regex {
+            if !re.is_match(&text_content) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn list_item_matches_filters(selector: &Selector, item: &ListItem) -> bool {
+    if selector.select_contains.is_some() || selector.select_regex.is_some() {
+        let text_content = list_item_to_text(item);
+
+        if let Some(contains_str) = &selector.select_contains {
+            if !text_content.contains(contains_str) {
+                return false;
+            }
+        }
+
+        if let Some(re) = &selector.select_regex {
+            if !re.is_match(&text_content) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn collect_scoped_list_items<'a>(
+    blocks: &'a [Block],
+    selector: &Selector,
+    scope: Scope,
+) -> Vec<(usize, usize, &'a ListItem)> {
+    let mut items = Vec::new();
+
+    if let Some(restriction) = scope.list_restriction {
+        if let Some(Block::List(list)) = blocks.get(restriction.block_index) {
+            for (item_index, item) in list.items.iter().enumerate() {
+                if let Some(start) = restriction.start_item {
+                    if item_index <= start {
+                        continue;
+                    }
+                }
+
+                if list_item_matches_filters(selector, item) {
+                    items.push((restriction.block_index, item_index, item));
+                }
+            }
+        }
+    }
+
+    for block_index in scope.block_start..scope.block_end {
+        if let Some(restriction) = scope.list_restriction {
+            if restriction.block_index == block_index {
+                continue;
+            }
+        }
+
+        if let Some(Block::List(list)) = blocks.get(block_index) {
+            for (item_index, item) in list.items.iter().enumerate() {
+                if list_item_matches_filters(selector, item) {
+                    items.push((block_index, item_index, item));
+                }
+            }
+        }
+    }
+
+    items
+}
+
 /// Finds the first node in the document that matches all the given selectors.
 ///
 /// The function can find top-level `Block` nodes or nested `ListItem` nodes.
@@ -81,6 +272,7 @@ pub fn locate<'a>(
     selector: &Selector,
 ) -> Result<(FoundNode<'a>, bool), SpliceError> {
     let ordinal_index = selector.select_ordinal.saturating_sub(1);
+    let scope = apply_scope(blocks, selector)?;
 
     // --- Search Strategy ---
     // If the selector type is for a list item, we perform a nested search.
@@ -88,48 +280,7 @@ pub fn locate<'a>(
     if let Some(type_str) = &selector.select_type {
         if is_list_item_type(type_str) {
             // --- List Item Search Logic ---
-            let all_items: Vec<_> = blocks
-                .iter()
-                .enumerate()
-                .filter_map(|(block_index, block)| {
-                    if let Block::List(list) = block {
-                        // For each list, create an iterator of its items, associating
-                        // them with their parent block's index.
-                        Some(
-                            list.items
-                                .iter()
-                                .enumerate()
-                                .map(move |(item_index, item)| (block_index, item_index, item)),
-                        )
-                    } else {
-                        None
-                    }
-                })
-                .flatten() // Flatten the iterators from all lists into one.
-                .collect();
-
-            let matches: Vec<_> = all_items
-                .into_iter()
-                .filter(|(_block_idx, _item_idx, item)| {
-                    // Apply text-based filters if they exist.
-                    if selector.select_contains.is_some() || selector.select_regex.is_some() {
-                        let text_content = list_item_to_text(item);
-
-                        if let Some(contains_str) = &selector.select_contains {
-                            if !text_content.contains(contains_str) {
-                                return false;
-                            }
-                        }
-
-                        if let Some(re) = &selector.select_regex {
-                            if !re.is_match(&text_content) {
-                                return false;
-                            }
-                        }
-                    }
-                    true
-                })
-                .collect();
+            let matches = collect_scoped_list_items(blocks, selector, scope);
 
             let is_ambiguous = matches.len() > 1;
 
@@ -150,39 +301,14 @@ pub fn locate<'a>(
     }
 
     // --- Block Search Logic (default) ---
-    let matches: Vec<_> = blocks
-        .iter()
-        .enumerate()
-        .filter(|(_i, block)| {
-            // Filter by type. If the selector is present, the block must match.
-            if let Some(type_str) = &selector.select_type {
-                if !block_type_matches(block, type_str) {
-                    return false;
-                }
+    let matches: Vec<_> = (scope.block_start..scope.block_end)
+        .filter_map(|index| {
+            let block = blocks.get(index)?;
+            if block_matches_selector(block, selector) {
+                Some((index, block))
+            } else {
+                None
             }
-
-            // If there are any text-based selectors, we need to check them.
-            // We compute the text content only once, and only if needed.
-            if selector.select_contains.is_some() || selector.select_regex.is_some() {
-                let text_content = block_to_text(block);
-
-                // Filter by substring containment.
-                if let Some(contains_str) = &selector.select_contains {
-                    if !text_content.contains(contains_str) {
-                        return false;
-                    }
-                }
-
-                // Filter by regex match.
-                if let Some(re) = &selector.select_regex {
-                    if !re.is_match(&text_content) {
-                        return false;
-                    }
-                }
-            }
-
-            // If we've passed all the checks, it's a match.
-            true
         })
         .collect();
 
@@ -207,46 +333,12 @@ pub fn locate_all<'a>(
     blocks: &'a [Block],
     selector: &Selector,
 ) -> Result<Vec<FoundNode<'a>>, SpliceError> {
+    let scope = apply_scope(blocks, selector)?;
+
     if let Some(type_str) = &selector.select_type {
         if is_list_item_type(type_str) {
-            let all_items: Vec<_> = blocks
-                .iter()
-                .enumerate()
-                .filter_map(|(block_index, block)| {
-                    if let Block::List(list) = block {
-                        Some(
-                            list.items
-                                .iter()
-                                .enumerate()
-                                .map(move |(item_index, item)| (block_index, item_index, item)),
-                        )
-                    } else {
-                        None
-                    }
-                })
-                .flatten()
-                .collect();
-
-            let matches = all_items
+            let matches = collect_scoped_list_items(blocks, selector, scope)
                 .into_iter()
-                .filter(|(_block_idx, _item_idx, item)| {
-                    if selector.select_contains.is_some() || selector.select_regex.is_some() {
-                        let text_content = list_item_to_text(item);
-
-                        if let Some(contains_str) = &selector.select_contains {
-                            if !text_content.contains(contains_str) {
-                                return false;
-                            }
-                        }
-
-                        if let Some(re) = &selector.select_regex {
-                            if !re.is_match(&text_content) {
-                                return false;
-                            }
-                        }
-                    }
-                    true
-                })
                 .map(|(block_index, item_index, item)| FoundNode::ListItem {
                     block_index,
                     item_index,
@@ -258,35 +350,15 @@ pub fn locate_all<'a>(
         }
     }
 
-    let matches = blocks
-        .iter()
-        .enumerate()
-        .filter(|(_i, block)| {
-            if let Some(type_str) = &selector.select_type {
-                if !block_type_matches(block, type_str) {
-                    return false;
-                }
+    let matches = (scope.block_start..scope.block_end)
+        .filter_map(|index| {
+            let block = blocks.get(index)?;
+            if block_matches_selector(block, selector) {
+                Some(FoundNode::Block { index, block })
+            } else {
+                None
             }
-
-            if selector.select_contains.is_some() || selector.select_regex.is_some() {
-                let text_content = block_to_text(block);
-
-                if let Some(contains_str) = &selector.select_contains {
-                    if !text_content.contains(contains_str) {
-                        return false;
-                    }
-                }
-
-                if let Some(re) = &selector.select_regex {
-                    if !re.is_match(&text_content) {
-                        return false;
-                    }
-                }
-            }
-
-            true
         })
-        .map(|(index, block)| FoundNode::Block { index, block })
         .collect();
 
     Ok(matches)
@@ -659,6 +731,36 @@ A paragraph.
 2. Fourth item
 "#;
 
+    const SCOPED_MARKDOWN: &str = r#"# Project Overview
+
+Introduction paragraph.
+
+## Installation
+Overview of installation.
+Additional installation notes.
+
+- Step zero
+- Step one
+- Step two
+
+Closing installation paragraph.
+
+## Backlog
+- [ ] Idea 1
+- [ ] Idea 2
+
+## Future Features
+Intro to future features.
+
+- [ ] Task Alpha
+- [ ] Task Beta
+- [x] Task Gamma
+
+## Usage
+Usage introduction.
+More usage guidance.
+"#;
+
     #[test]
     fn test_ll1_select_list_item_by_type_and_ordinal() {
         // LL1: Select the 3rd list item in a document containing multiple lists.
@@ -794,5 +896,198 @@ A paragraph.
             is_ambiguous,
             "Expected ambiguity to be true when multiple list items match"
         );
+    }
+
+    #[test]
+    fn test_scoped_after_heading_paragraph_selection() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("p".to_string()),
+            select_ordinal: 1,
+            after: Some(Box::new(Selector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Installation".to_string()),
+                select_ordinal: 1,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let result =
+            locate(&doc.blocks, &selector).expect("Expected paragraph after Installation heading");
+        let (found, is_ambiguous) = result;
+
+        assert!(
+            matches!(found, FoundNode::Block { index, .. } if index == 3),
+            "Expected to find the first paragraph after the Installation heading"
+        );
+        assert!(
+            is_ambiguous,
+            "Multiple paragraphs exist after the Installation heading, ambiguity should be detected"
+        );
+    }
+
+    #[test]
+    fn test_scoped_within_heading_limits_search_space() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("li".to_string()),
+            select_contains: Some("Task Beta".to_string()),
+            within: Some(Box::new(Selector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Future Features".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let (found, is_ambiguous) = locate(&doc.blocks, &selector)
+            .expect("Expected to find Task Beta within Future Features");
+
+        if let FoundNode::ListItem {
+            block_index,
+            item_index,
+            item,
+        } = found
+        {
+            assert_eq!(
+                block_index, 10,
+                "Future Features list should be at block index 10"
+            );
+            assert_eq!(
+                item_index, 1,
+                "Task Beta should be the second item in the list"
+            );
+            assert!(
+                list_item_to_text(item).contains("Task Beta"),
+                "Selected item should contain Task Beta"
+            );
+            assert!(
+                !is_ambiguous,
+                "Only one item should match Task Beta within the scoped section"
+            );
+        } else {
+            panic!("Expected to find a list item within Future Features");
+        }
+    }
+
+    #[test]
+    fn test_scoped_after_missing_landmark_errors() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("p".to_string()),
+            select_ordinal: 1,
+            after: Some(Box::new(Selector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Does Not Exist".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(matches!(result, Err(SpliceError::NodeNotFound)));
+    }
+
+    #[test]
+    fn test_scoped_within_missing_primary_errors() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("p".to_string()),
+            select_contains: Some("Non-existent".to_string()),
+            within: Some(Box::new(Selector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Future Features".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(matches!(result, Err(SpliceError::NodeNotFound)));
+    }
+
+    #[test]
+    fn test_scoped_within_invalid_target_errors() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("p".to_string()),
+            select_ordinal: 1,
+            within: Some(Box::new(Selector {
+                select_type: Some("p".to_string()),
+                select_contains: Some("Introduction paragraph.".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(matches!(result, Err(SpliceError::NodeNotFound)));
+    }
+
+    #[test]
+    fn test_scoped_conflicting_modifiers_error() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("p".to_string()),
+            select_ordinal: 1,
+            after: Some(Box::new(Selector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Installation".to_string()),
+                ..Default::default()
+            })),
+            within: Some(Box::new(Selector {
+                select_type: Some("h2".to_string()),
+                select_contains: Some("Usage".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let result = locate(&doc.blocks, &selector);
+        assert!(matches!(
+            result,
+            Err(SpliceError::ConflictingScopeModifiers)
+        ));
+    }
+
+    #[test]
+    fn test_scoped_after_list_item_selects_following_item() {
+        let doc = parse_markdown(MarkdownParserState::default(), SCOPED_MARKDOWN).unwrap();
+        let selector = Selector {
+            select_type: Some("li".to_string()),
+            select_ordinal: 1,
+            after: Some(Box::new(Selector {
+                select_type: Some("li".to_string()),
+                select_contains: Some("Step zero".to_string()),
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        let (found, _) =
+            locate(&doc.blocks, &selector).expect("Expected to find list item after Step zero");
+
+        if let FoundNode::ListItem {
+            block_index,
+            item_index,
+            item,
+        } = found
+        {
+            assert_eq!(
+                block_index, 4,
+                "Installation checklist should be at block index 4"
+            );
+            assert_eq!(
+                item_index, 1,
+                "First item after Step zero should be Step one"
+            );
+            assert!(
+                list_item_to_text(item).contains("Step one"),
+                "Expected to select the list item immediately after Step zero"
+            );
+        } else {
+            panic!("Expected to find a list item after Step zero");
+        }
     }
 }
