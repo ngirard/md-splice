@@ -11,6 +11,7 @@ A command-line tool for precise, AST-aware insertion, replacement, deletion, and
 * **Powerful node selection**: Select elements by type (`h1`, `p`, `list`), text content (fixed string or regex), and ordinal position (e.g., the 3rd paragraph).
 * **Heading section logic**: Intelligently handles insertions relative to a heading, correctly identifying the "section" of content that belongs to it.
 * **Safe file handling**: Performs atomic in-place writes to prevent file corruption on error. Can also write to a new file or standard output.
+* **Multi-operation transactions**: Execute a sequence of inserts, replacements, and deletes atomically with a single command.
 
 ## Installation
 
@@ -26,6 +27,61 @@ Alternatively, install the latest version directly from the repository:
 cargo install --git https://github.com/ngirard/md-splice.git
 ```
 
+## Multi-operation transactions with `apply`
+
+Complex document updates often require multiple coordinated inserts, replacements, and deletes. Running each command
+individually is fragile and inefficient because selectors must be recomputed after every modification. The `apply`
+subcommand solves this by accepting a list of operations, applying them against the Markdown AST in memory, and only
+writing the file if every operation succeeds.
+
+Key advantages:
+
+* **Atomicity:** All operations succeed or none do. If any selector fails, the original file remains unchanged.
+* **Selector stability:** Later operations see the AST after earlier modifications, preventing positional drift.
+* **Fast feedback:** Use `--dry-run` to preview the resulting Markdown or `--diff` to emit a unified diff to stdout.
+
+Operations can be provided through `--operations-file <PATH>` (supports JSON or YAML and accepts `-` for stdin) or inline
+via `--operations '<JSON>'`. The CLI automatically detects JSON vs. YAML when reading from a file.
+
+Example operations file (`changes.yaml`):
+
+```yaml
+- op: replace
+  select_contains: "Status: In Progress"
+  content: "Status: **Complete**"
+- op: insert
+  select_type: li
+  select_contains: "Write documentation"
+  position: before
+  content: "- [ ] Implement unit tests"
+- op: delete
+  select_type: h2
+  select_contains: "Low Priority"
+  section: true
+```
+
+Run the transaction and preview the diff without touching the file:
+
+```sh
+md-splice --file TODO.md apply --operations-file changes.yaml --diff
+```
+
+When `--diff` is supplied, `md-splice` prints a unified diff (with `original`/`modified` headers) and exits without writing.
+`--dry-run` behaves similarly but prints the rendered Markdown instead of a diff.
+
+### Operations file structure
+
+Each transaction file is an array of operation objects. Every object includes a `op` field (`insert`, `replace`, or `delete`)
+plus selector keys written in `snake_case` (`select_type`, `select_contains`, `select_regex`, `select_ordinal`). Operation
+variants accept additional fields:
+
+* `replace`: `content` or `content_file`.
+* `insert`: `content`/`content_file` plus optional `position` (`before`, `after`, `prepend_child`, `append_child`).
+* `delete`: optional `section` to remove an entire heading section.
+
+See [`goal-transactions/Transactions-specification.md`](goal-transactions/Transactions-specification.md) for the complete
+schema, examples, and behavioral guarantees.
+
 ## Usage
 
 ### Basic command structure
@@ -35,8 +91,10 @@ md-splice --file <PATH> [COMMAND] [OPTIONS]
 ```
 
 * `--file <PATH>`: The Markdown file to modify.
-* `[COMMAND]`: One of `insert`, `replace`, `delete` (alias: `remove`), or `get`.
-* `[OPTIONS]`: Selectors and content options.
+* `[COMMAND]`: One of `insert`, `replace`, `delete` (alias: `remove`), `get`, or `apply`.
+* `[OPTIONS]`: Selector flags, content inputs, and command-specific options.
+
+When using `apply`, the selector and content options come from a structured operations file (JSON or YAML) or inline JSON. The command reads all operations, applies them to the in-memory Markdown AST, and only writes the result after every operation has succeeded.
 
 ### Examples
 
@@ -311,6 +369,29 @@ md-splice --file api.md delete \
 When `--section` is supplied, the selected heading and all content up to the next heading of the same or higher level is remove
 d. Using the command above deletes the "Deprecated API" section while leaving the rest of the document intact.
 
+#### 8. Apply multiple operations atomically
+
+Create an operations file describing the desired changes:
+
+```yaml
+- op: replace
+  select_contains: "Status: In Progress"
+  content: "Status: **Complete**"
+- op: insert
+  select_type: li
+  select_contains: "Write documentation"
+  position: before
+  content: "- [ ] Implement unit tests"
+```
+
+Apply both operations in a single, atomic transaction:
+
+```sh
+md-splice --file TODO.md apply --operations-file changes.yaml
+```
+
+Add `--dry-run` to preview the resulting Markdown or `--diff` to review a unified diff without modifying the file.
+
 ## Command-Line Reference
 
 ### Global Options
@@ -385,6 +466,23 @@ Options:
       --section                 When selecting a heading, get its entire section
       --separator <STRING>      Separator to use between results with --select-all [default: "\n"]
 ```
+
+#### `apply`
+
+Executes a series of operations defined in an external file or inline JSON, applying them atomically to the target document.
+
+```
+Usage: md-splice apply [OPTIONS]
+
+Options:
+  -O, --operations-file <PATH>  Path to a JSON or YAML file describing the operations (use '-' for stdin)
+      --operations <JSON>       Inline JSON array of operations
+      --dry-run                 Render the resulting Markdown to stdout without writing files
+      --diff                    Emit a unified diff to stdout instead of writing files
+```
+
+At least one of `--operations-file` or `--operations` must be supplied. When `--diff` is set, the command prints a diff with
+`original` and `modified` headers and exits without mutating the file system.
 
 ### Selector Options
 
