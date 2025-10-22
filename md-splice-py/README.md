@@ -52,6 +52,49 @@ creates a `path~` sibling of the current file before atomically swapping in the 
 content, satisfying the safety guarantees described in the specification. Use
 `write_to(path)` to atomically write to a new location.
 
+## Context managers
+
+For workflows that prefer `with` blocks, the package exposes context managers in
+`md_splice.ctx` that wrap the behaviours mandated by
+[`goal-Python-context-manager/Specification.md`](../goal-Python-context-manager/Specification.md).
+
+```python
+from md_splice import Selector, InsertOperation, InsertPosition
+from md_splice.ctx import MdEdit, MdBatchEdit
+
+# Freeform edit: call doc.apply() as many times as needed.
+with MdEdit("README.md") as doc:
+    doc.apply([
+        InsertOperation(
+            selector=Selector(select_type="h2", select_contains="Changelog"),
+            position=InsertPosition.AFTER,
+            content="## Release notes\n- Added Python context managers.\n",
+        )
+    ])
+
+# Batch mode: queue operations; apply once on exit for selector stability.
+with MdBatchEdit("README.md") as edit:
+    edit.apply(
+        InsertOperation(
+            selector=Selector(select_type="h2", select_contains="Changelog"),
+            position=InsertPosition.AFTER,
+            content="## Release notes\n- Added Python context managers.\n",
+        )
+    )
+```
+
+Both managers default to the safest options: backups are written, ambiguity raises
+an exception, stale-write detection compares the file's `mtime_ns` and size before
+committing, and commits only happen on clean exits. Set `fail_on_ambiguity=False` to
+emit warnings instead of raising, `check_stale=False` to skip the change-detection
+guard, or `commit=False` for dry runs that leave the file untouched.
+
+Enable `preview_diff=True` to print a unified diff via `diff_unified` before the
+atomic write. Nested contexts targeting the same resolved path are rejected with a
+`RuntimeError`, so open separate blocks sequentially when editing the same file.
+On Windows the underlying `write_in_place` call can still raise `IoError` if another
+process holds the file handle; the exception propagates so callers can react.
+
 ## Preview and diff helpers
 
 `MarkdownDocument.preview()` simulates a transaction on a clone and returns the
