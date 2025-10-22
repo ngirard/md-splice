@@ -65,7 +65,7 @@ jobs:
           source .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install pytest hypothesis
-          python -m pip install dist/md_splice-*.whl
+          python -m pip install dist/md_splice-*$(python -c "import sys; print(f'cp{sys.version_info[0]}{sys.version_info[1]}')")*.whl
           tmp_dir="$(mktemp -d)"
           cp -r tests "${tmp_dir}/tests"
           cd "${tmp_dir}"
