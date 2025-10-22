@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - work
+    tags:
+      - 'v*'
     paths:
       - 'md-splice-py/**'
       - 'md-splice-lib/**'
@@ -197,3 +199,31 @@ jobs:
         with:
           name: sdist
           path: md-splice-py/dist/*
+
+  publish:
+    name: Publish to PyPI
+    needs:
+      - linux-manylinux
+      - linux-musllinux
+      - macos-wheels
+      - windows-wheels
+      - sdist
+    if: startsWith(github.ref, 'refs/tags/v') && secrets.PYPI_API_TOKEN != ''
+    runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/project/md-splice/
+    permissions:
+      contents: read
+    steps:
+      - name: Download built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish artifacts to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.9.3
+        with:
+          packages-dir: dist
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
