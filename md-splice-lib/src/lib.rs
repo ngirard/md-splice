@@ -126,8 +126,8 @@ impl MarkdownDocument {
 
     /// Renders the document, including frontmatter, back to a Markdown string.
     ///
-    /// The output preserves the original frontmatter delimiter style and uses
-    /// `markdown-ppp`'s default printer configuration for the body.
+    /// The output preserves the original frontmatter delimiter style and renders the body
+    /// with the library's default printer configuration (zero spaces before list markers).
     pub fn render(&self) -> String {
         let mut output = String::new();
 
@@ -135,7 +135,7 @@ impl MarkdownDocument {
             output.push_str(prefix);
         }
 
-        let body_output = render_markdown(&self.doc, PrinterConfig::default());
+        let body_output = render_markdown(&self.doc, default_printer_config());
         output.push_str(&body_output);
 
         output
@@ -155,6 +155,14 @@ impl MarkdownDocument {
     pub fn frontmatter_format(&self) -> Option<FrontmatterFormat> {
         self.parsed.format
     }
+}
+
+/// Returns the default printer configuration used by `md-splice` when rendering Markdown.
+///
+/// The configuration disables the extra leading space before list markers so that inserted
+/// list items retain their original indentation.
+pub fn default_printer_config() -> PrinterConfig {
+    PrinterConfig::default().with_spaces_before_list_item(0)
 }
 
 impl FromStr for MarkdownDocument {
