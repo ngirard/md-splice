@@ -7,7 +7,7 @@ use anyhow::{anyhow, Context};
 use clap::Parser;
 use markdown_ppp::ast::{Block, Heading, HeadingKind, SetextHeading};
 use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
-use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
+use markdown_ppp::printer::render_markdown;
 use md_splice_lib::error::SpliceError;
 use md_splice_lib::frontmatter::{self, FrontmatterFormat};
 use md_splice_lib::locator::{locate, locate_all, FoundNode, Selector};
@@ -16,7 +16,7 @@ use md_splice_lib::transaction::{
     InsertPosition as TxInsertPosition, Operation, ReplaceOperation, Selector as TxSelector,
     SetFrontmatterOperation,
 };
-use md_splice_lib::MarkdownDocument;
+use md_splice_lib::{default_printer_config, MarkdownDocument};
 use regex::Regex;
 use serde_yaml::Value as YamlValue;
 use similar::TextDiff;
@@ -783,7 +783,7 @@ fn render_blocks(blocks: &[Block]) -> String {
     let temp_doc = markdown_ppp::ast::Document {
         blocks: blocks.to_vec(),
     };
-    let mut rendered = render_markdown(&temp_doc, PrinterConfig::default());
+    let mut rendered = render_markdown(&temp_doc, default_printer_config());
     if !rendered.is_empty() && !rendered.ends_with('\n') {
         rendered.push('\n');
     }

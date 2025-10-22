@@ -141,7 +141,7 @@ def test_get_select_all_returns_all_matches():
 
     result = doc.get(Selector(select_type="li"), select_all=True)
 
-    assert result == [" - Alpha\n", " - Beta\n", " - Gamma\n"]
+    assert result == ["- Alpha\n", "- Beta\n", "- Gamma\n"]
 
 
 def test_get_select_all_disallows_until():

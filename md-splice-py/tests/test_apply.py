@@ -48,6 +48,41 @@ def test_apply_insert_and_render_updates_document() -> None:
     assert rendered.count("- [ ]") == 2
 
 
+def test_apply_insert_preserves_list_marker_spacing() -> None:
+    doc = MarkdownDocument.from_string(
+        dedent(
+            """
+            # Lorem
+
+            ## Changelog
+            Ipsum
+
+            ## Dolor
+            Sit amet
+            """
+        ).lstrip()
+    )
+
+    doc.apply(
+        [
+            InsertOperation(
+                selector=Selector(select_type="h2", select_contains="Changelog"),
+                content=dedent(
+                    """
+                    ## Release notes
+                    - Initial Python bindings
+                    """
+                ).strip(),
+                position=InsertPosition.AFTER,
+            )
+        ]
+    )
+
+    rendered = doc.render()
+    assert "## Release notes\n\n- Initial Python bindings" in rendered
+    assert "\n - Initial Python bindings" not in rendered
+
+
 def test_apply_replace_until_range_substitutes_multiple_blocks() -> None:
     doc = MarkdownDocument.from_string(
         dedent(

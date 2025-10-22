@@ -6,8 +6,9 @@ use std::{
 };
 
 use markdown_ppp::ast::{Block, Document, HeadingKind, SetextHeading};
-use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
+use markdown_ppp::printer::render_markdown;
 use md_splice_lib::{
+    default_printer_config,
     error::SpliceError,
     frontmatter::FrontmatterFormat,
     locator::{locate, locate_all, FoundNode, Selector as LocatorSelector},
@@ -306,9 +307,7 @@ fn map_splice_error_inner(py: Python<'_>, err: &SpliceError) -> PyResult<PyErr> 
         SpliceError::Io(_) => ("IoError", err.to_string()),
     };
 
-    let error_type = errors_module
-        .getattr(class_name)?
-        .cast_into::<PyType>()?;
+    let error_type = errors_module.getattr(class_name)?.cast_into::<PyType>()?;
     Ok(PyErr::from_type(error_type, (message,)))
 }
 
@@ -812,7 +811,7 @@ fn render_blocks(blocks: &[Block]) -> String {
     let temp_doc = Document {
         blocks: blocks.to_vec(),
     };
-    let mut rendered = render_markdown(&temp_doc, PrinterConfig::default());
+    let mut rendered = render_markdown(&temp_doc, default_printer_config());
     if !rendered.is_empty() && !rendered.ends_with('\n') {
         rendered.push('\n');
     }
@@ -1233,9 +1232,7 @@ fn tx_selector_to_py(
     types_module: &Bound<'_, PyModule>,
     selector: &TxSelector,
 ) -> PyResult<Py<PyAny>> {
-    let class = types_module
-        .getattr("Selector")?
-        .cast_into::<PyType>()?;
+    let class = types_module.getattr("Selector")?.cast_into::<PyType>()?;
     let kwargs = PyDict::new(py);
 
     if let Some(select_type) = &selector.select_type {
