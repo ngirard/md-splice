@@ -161,6 +161,11 @@ jobs:
           target: x64
           args: --release --out dist --find-interpreter
           sccache: ${{ github.event_name != 'workflow_dispatch' && !startsWith(github.ref, 'refs/tags/') }}
+      - name: List dist directory
+        shell: pwsh
+        working-directory: md-splice-py
+        run: |
+          Get-ChildItem dist
       - name: Test Windows wheel
         shell: pwsh
         working-directory: md-splice-py
@@ -169,7 +174,12 @@ jobs:
           .\.venv\Scripts\Activate.ps1
           python -m pip install --upgrade pip
           python -m pip install pytest hypothesis
-          python -m pip install dist/md_splice-*$(python3 -c "import platform; print(f'cp{platform.python_version_tuple()[0]}{platform.python_version_tuple()[1]}')")*.whl
+          $wheel = Get-ChildItem dist/md_splice-*.whl | Select-Object -First 1
+          if (-not $wheel) {
+            Write-Error "No wheel found in dist/"
+            exit 1
+          }
+          python -m pip install $wheel.FullName
           $tmp = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "tests")
           Copy-Item tests $tmp -Recurse
           Set-Location $tmp
