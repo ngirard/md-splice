@@ -174,12 +174,39 @@ jobs:
           .\.venv\Scripts\Activate.ps1
           python -m pip install --upgrade pip
           python -m pip install pytest hypothesis
-          $wheel = Get-ChildItem dist/md_splice-*.whl | Select-Object -First 1
+
+          # Compute CP tag for current interpreter, e.g. "cp311"
+          $pyTag = (& python - <<'PY'
+          import sys
+          print(f"cp{sys.version_info[0]}{sys.version_info[1]}")
+          PY
+          ).Trim()
+
+          # architecture used for our wheels on Windows runners
+          $arch = "win_amd64"
+
+          # Prefer wheel matching the interpreter tag and arch
+          $wheel = Get-ChildItem dist -Filter "md_splice-*${pyTag}*${arch}*.whl" | Select-Object -First 1
+
+          # If no exact match, try any wheel that contains the cp tag
+          if (-not $wheel) {
+            $wheel = Get-ChildItem dist -Filter "md_splice-*${pyTag}*.whl" | Select-Object -First 1
+          }
+
+          # Final fallback: any md_splice wheel (keeps previous behavior if nothing better)
+          if (-not $wheel) {
+            Write-Host "No wheel found matching $pyTag and $arch; falling back to any md_splice-*.whl"
+            $wheel = Get-ChildItem dist/md_splice-*.whl | Select-Object -First 1
+          }
+
           if (-not $wheel) {
             Write-Error "No wheel found in dist/"
             exit 1
           }
+
+          Write-Host "Installing wheel: $($wheel.Name)"
           python -m pip install $wheel.FullName
+
           $tmp = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "tests")
           Copy-Item tests $tmp -Recurse
           Set-Location $tmp
