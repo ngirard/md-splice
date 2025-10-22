@@ -93,3 +93,9 @@ update 17
 - Copied the license into the Python package and taught `maturin` to bundle the README and changelog when building sdists.
 - Documented the wheel/sdist build workflow in the Python README and verified `maturin build --release`, `maturin sdist`, and the pytest suite inside a fresh `.venv`.
 - Next: script the multi-platform wheel build matrix (CI) ahead of the first PyPI release.
+
+update 18
+- Added a `Python Wheels` GitHub Actions workflow that builds manylinux (x86_64/aarch64), musllinux (x86_64), macOS (x86_64/arm64), and Windows (x86_64) wheels for Python 3.8–3.12 alongside the source distribution.
+- Each CI job now installs the freshly built wheel into an isolated virtual environment, copies the pytest suite to a temporary directory, and runs it so imports exercise the published artifact rather than the source tree.
+- Documented the workflow in the Python README and recorded the CI enhancement in the changelog to guide future release automation.
+- Status: CI scripting complete; upcoming work can focus on release automation and PyPI publication.

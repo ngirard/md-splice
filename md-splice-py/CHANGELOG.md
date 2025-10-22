@@ -12,6 +12,13 @@ and the project adheres to semantic versioning in lockstep with the Rust core.
 - Include the license, README, and changelog in source distributions
   so PyPI uploads mirror the Rust release.
 
+### CI
+- Added a `Python Wheels` GitHub Actions workflow that builds manylinux,
+  musllinux, macOS (x86_64 and arm64), and Windows wheels for Python 3.8–3.12,
+  installing each artifact into a clean virtual environment before running the
+  full pytest suite. The workflow uploads the validated wheels and sdist as
+  artifacts to streamline promotion to PyPI once releases are tagged.
+
 ## [0.5.0] - 2025-10-21
 
 ### Added
