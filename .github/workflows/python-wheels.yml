@@ -83,7 +83,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '{{ matrix.python-version }}'
+          python-version: '3.11'
       - name: Build musllinux wheels
         uses: PyO3/maturin-action@v1
         with:
@@ -169,8 +169,7 @@ jobs:
           .\.venv\Scripts\Activate.ps1
           python -m pip install --upgrade pip
           python -m pip install pytest hypothesis
-          $wheel = Get-ChildItem -Path dist -Filter 'md_splice-*.whl' | Select-Object -First 1
-          python -m pip install $wheel.FullName
+          python -m pip install dist/md_splice-*$(python3 -c "import platform; print(f'cp{platform.python_version_tuple()[0]}{platform.python_version_tuple()[1]}')")*.whl
           $tmp = New-Item -ItemType Directory -Path (Join-Path $env:RUNNER_TEMP "tests")
           Copy-Item tests $tmp -Recurse
           Set-Location $tmp
