@@ -727,7 +727,6 @@ fn extract_regex_flags(py: Python<'_>, pattern_obj: &Bound<'_, PyAny>) -> PyResu
         ("ASCII", re_module.getattr("ASCII")?.extract::<u32>()?),
         ("LOCALE", re_module.getattr("LOCALE")?.extract::<u32>()?),
         ("DEBUG", re_module.getattr("DEBUG")?.extract::<u32>()?),
-        ("TEMPLATE", re_module.getattr("TEMPLATE")?.extract::<u32>()?),
     ];
 
     let mut unsupported: Vec<String> = Vec::new();
