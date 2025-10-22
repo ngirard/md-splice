@@ -130,7 +130,7 @@ jobs:
           source .venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install pytest hypothesis
-          python -m pip install dist/md_splice-*.whl
+          python -m pip install dist/md_splice-*$(python3 -c "import platform; print(f'cp{platform.python_version_tuple()[0]}{platform.python_version_tuple()[1]}')")*.whl
           tmp_dir="$(mktemp -d)"
           cp -r tests "${tmp_dir}/tests"
           cd "${tmp_dir}"
