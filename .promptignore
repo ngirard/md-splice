@@ -25,3 +25,8 @@ tests/snapshots
 tests
 /devel
 md-splice/src
+goal-Python-library
+pyo3_migration_guide.md
+
+CHANGELOG.md
+Cargo.toml
