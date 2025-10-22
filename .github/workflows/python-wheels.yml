@@ -176,11 +176,7 @@ jobs:
           python -m pip install pytest hypothesis
 
           # Compute CP tag for current interpreter, e.g. "cp311"
-          $pyTag = (& python - <<'PY'
-          import sys
-          print(f"cp{sys.version_info[0]}{sys.version_info[1]}")
-          PY
-          ).Trim()
+          $pyTag = python -c "import sys; print(f'cp{sys.version_info[0]}{sys.version_info[1]}')" | ForEach-Object { $_.Trim() }
 
           # architecture used for our wheels on Windows runners
           $arch = "win_amd64"
