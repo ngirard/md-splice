@@ -247,6 +247,7 @@ jobs:
       url: https://pypi.org/project/md-splice/
     permissions:
       contents: read
+      id-token: write  # Required for OIDC trusted publishing
     steps:
       - name: Download built artifacts
         uses: actions/download-artifact@v5
@@ -254,9 +255,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Publish artifacts to PyPI
-        if: secrets.PYPI_API_TOKEN != ''
-        uses: pypa/gh-action-pypi-publish@v1
+        uses: pypa/gh-action-pypi-publish@release/v1  # Updated to latest release tag
         with:
           packages-dir: dist
-          user: __token__
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          # No user/password needed—OIDC handles auth
