@@ -22,6 +22,7 @@ use md_splice_lib::{
     ApplyOutcome, MarkdownDocument as CoreMarkdownDocument,
 };
 use pyo3::{
+    conversion::IntoPyObjectExt,
     create_exception,
     exceptions::{PyException, PyTypeError, PyValueError},
     prelude::*,
@@ -175,7 +176,7 @@ impl PyMarkdownDocument {
         select_all: bool,
         section: bool,
         until: Option<&Bound<'_, PyAny>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<Py<PyAny>> {
         let locator_selector = py_selector_to_locator(py, selector)?;
         let blocks = self.inner.blocks();
 
@@ -187,7 +188,7 @@ impl PyMarkdownDocument {
             }
 
             let matches = locate_all(blocks, &locator_selector).map_err(map_splice_error)?;
-            let py_list = PyList::empty_bound(py);
+            let py_list = PyList::empty(py);
 
             for found in &matches {
                 let rendered = if section {
@@ -195,10 +196,10 @@ impl PyMarkdownDocument {
                 } else {
                     render_found_node(blocks, found)?
                 };
-                py_list.append(PyString::new_bound(py, &rendered))?;
+                py_list.append(PyString::new(py, &rendered))?;
             }
 
-            return Ok(py_list.into_py(py));
+            return Ok(py_list.into_any().unbind());
         }
 
         let (found_node, _) = locate(blocks, &locator_selector).map_err(map_splice_error)?;
@@ -209,7 +210,7 @@ impl PyMarkdownDocument {
                 FoundNode::Block { index, .. } => {
                     let end_index = compute_range_end(blocks, *index, &until_selector)?;
                     let rendered = render_blocks(&blocks[*index..end_index]);
-                    return Ok(PyString::new_bound(py, &rendered).into_py(py));
+                    return Ok(PyString::new(py, &rendered).into_any().unbind());
                 }
                 FoundNode::ListItem { .. } => {
                     return Err(map_splice_error(SpliceError::RangeRequiresBlock));
@@ -223,14 +224,14 @@ impl PyMarkdownDocument {
             render_found_node(blocks, &found_node)?
         };
 
-        Ok(PyString::new_bound(py, &rendered).into_py(py))
+        Ok(PyString::new(py, &rendered).into_any().unbind())
     }
 
     /// Return the frontmatter as native Python data or ``None``.
     ///
     /// The value mirrors the YAML/TOML content as described in the
     /// specification and round-trips through :class:`yaml` compatible types.
-    pub fn frontmatter(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+    pub fn frontmatter(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         match self.inner.frontmatter() {
             Some(value) => yaml_value_to_py(py, value).map(Some),
             None => Ok(None),
@@ -238,12 +239,12 @@ impl PyMarkdownDocument {
     }
 
     /// Return the detected frontmatter format enum or ``None`` when absent.
-    pub fn frontmatter_format(&self, py: Python<'_>) -> PyResult<Option<PyObject>> {
+    pub fn frontmatter_format(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
         let Some(format) = self.inner.frontmatter_format() else {
             return Ok(None);
         };
 
-        let types_module = PyModule::import_bound(py, "md_splice.types")?;
+        let types_module = py.import("md_splice.types")?;
         let enum_class = types_module.getattr("FrontmatterFormat")?;
 
         let variant_name = match format {
@@ -252,7 +253,7 @@ impl PyMarkdownDocument {
         };
 
         let variant = enum_class.getattr(variant_name)?;
-        Ok(Some(variant.into_py(py)))
+        Ok(Some(variant.into_any().unbind()))
     }
 
     /// Create a deep copy of the document, including pending mutations.
@@ -268,7 +269,7 @@ impl PyMarkdownDocument {
 fn _native(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add("__version__", env!("CARGO_PKG_VERSION"))?;
     module.add_class::<PyMarkdownDocument>()?;
-    module.add("MdSpliceError", py.get_type_bound::<MdSpliceError>())?;
+    module.add("MdSpliceError", py.get_type::<MdSpliceError>())?;
     module.add_function(pyo3::wrap_pyfunction!(diff_unified, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(loads_operations, module)?)?;
     module.add_function(pyo3::wrap_pyfunction!(dumps_operations, module)?)?;
@@ -276,14 +277,14 @@ fn _native(py: Python, module: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 fn map_splice_error(err: SpliceError) -> PyErr {
-    Python::with_gil(|py| match map_splice_error_inner(py, &err) {
+    Python::attach(|py| match map_splice_error_inner(py, &err) {
         Ok(py_err) => py_err,
         Err(_) => MdSpliceError::new_err(err.to_string()),
     })
 }
 
 fn map_splice_error_inner(py: Python<'_>, err: &SpliceError) -> PyResult<PyErr> {
-    let errors_module = PyModule::import_bound(py, "md_splice.errors")?;
+    let errors_module = py.import("md_splice.errors")?;
     let (class_name, message) = match err {
         SpliceError::NodeNotFound => ("NodeNotFoundError", err.to_string()),
         SpliceError::InvalidChildInsertion(_) => ("InvalidChildInsertionError", err.to_string()),
@@ -307,8 +308,8 @@ fn map_splice_error_inner(py: Python<'_>, err: &SpliceError) -> PyResult<PyErr> 
 
     let error_type = errors_module
         .getattr(class_name)?
-        .downcast_into::<PyType>()?;
-    Ok(PyErr::from_type_bound(error_type, (message,)))
+        .cast_into::<PyType>()?;
+    Ok(PyErr::from_type(error_type, (message,)))
 }
 
 fn maybe_emit_ambiguity_warning(
@@ -317,8 +318,8 @@ fn maybe_emit_ambiguity_warning(
     outcome: ApplyOutcome,
 ) -> PyResult<()> {
     if warn_on_ambiguity && outcome.ambiguity_detected {
-        let warnings = PyModule::import_bound(py, "warnings")?;
-        let builtins = PyModule::import_bound(py, "builtins")?;
+        let warnings = py.import("warnings")?;
+        let builtins = py.import("builtins")?;
         let warning_type = builtins.getattr("UserWarning")?;
         warnings.call_method1(
             "warn",
@@ -336,7 +337,7 @@ fn py_operations_to_rust(
     py: Python<'_>,
     operations: &Bound<'_, PyAny>,
 ) -> PyResult<Vec<TxOperation>> {
-    let iterator = operations.iter()?;
+    let iterator = operations.try_iter()?;
     let mut converted = Vec::new();
     for item in iterator {
         let bound = item?;
@@ -551,7 +552,7 @@ fn py_to_yaml_value(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<YamlValu
         return Ok(YamlValue::String(value));
     }
 
-    if let Ok(list) = obj.downcast::<PyList>() {
+    if let Ok(list) = obj.cast::<PyList>() {
         let mut seq = Vec::with_capacity(list.len());
         for item in list {
             seq.push(py_to_yaml_value(py, &item)?);
@@ -559,7 +560,7 @@ fn py_to_yaml_value(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<YamlValu
         return Ok(YamlValue::Sequence(seq));
     }
 
-    if let Ok(tuple) = obj.downcast::<PyTuple>() {
+    if let Ok(tuple) = obj.cast::<PyTuple>() {
         let mut seq = Vec::with_capacity(tuple.len());
         for item in tuple {
             seq.push(py_to_yaml_value(py, &item)?);
@@ -567,7 +568,7 @@ fn py_to_yaml_value(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<YamlValu
         return Ok(YamlValue::Sequence(seq));
     }
 
-    if let Ok(dict) = obj.downcast::<PyDict>() {
+    if let Ok(dict) = obj.cast::<PyDict>() {
         let mut mapping = YamlMapping::new();
         for (key, value) in dict.iter() {
             let key_value = py_to_yaml_value(py, &key)?;
@@ -583,42 +584,42 @@ fn py_to_yaml_value(py: Python<'_>, obj: &Bound<'_, PyAny>) -> PyResult<YamlValu
     )))
 }
 
-fn yaml_value_to_py(py: Python<'_>, value: &YamlValue) -> PyResult<PyObject> {
-    Ok(match value {
-        YamlValue::Null => py.None().into_py(py),
-        YamlValue::Bool(value) => (*value).into_py(py),
+fn yaml_value_to_py(py: Python<'_>, value: &YamlValue) -> PyResult<Py<PyAny>> {
+    match value {
+        YamlValue::Null => Ok(py.None()),
+        YamlValue::Bool(value) => (*value).into_py_any(py),
         YamlValue::Number(number) => {
             if let Some(int_value) = number.as_i64() {
-                int_value.into_py(py)
+                int_value.into_py_any(py)
             } else if let Some(uint_value) = number.as_u64() {
-                uint_value.into_py(py)
+                uint_value.into_py_any(py)
             } else if let Some(float_value) = number.as_f64() {
-                float_value.into_py(py)
+                float_value.into_py_any(py)
             } else {
-                return Err(PyErr::new::<PyException, _>(
+                Err(PyErr::new::<PyException, _>(
                     "Unsupported YAML number representation",
-                ));
+                ))
             }
         }
-        YamlValue::String(value) => value.clone().into_py(py),
+        YamlValue::String(value) => value.clone().into_py_any(py),
         YamlValue::Sequence(items) => {
-            let list = PyList::empty_bound(py);
+            let list = PyList::empty(py);
             for item in items {
                 list.append(yaml_value_to_py(py, item)?)?;
             }
-            list.into_py(py)
+            Ok(list.into_any().unbind())
         }
         YamlValue::Mapping(mapping) => {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             for (key, value) in mapping {
                 let key_obj = yaml_value_to_py(py, key)?;
                 let value_obj = yaml_value_to_py(py, value)?;
                 dict.set_item(key_obj, value_obj)?;
             }
-            dict.into_py(py)
+            Ok(dict.into_any().unbind())
         }
-        YamlValue::Tagged(tagged) => yaml_value_to_py(py, &tagged.value)?,
-    })
+        YamlValue::Tagged(tagged) => yaml_value_to_py(py, &tagged.value),
+    }
 }
 
 fn py_selector_to_locator(
@@ -677,10 +678,10 @@ fn python_regex_to_rust(py: Python<'_>, pattern_obj: &Bound<'_, PyAny>) -> PyRes
 }
 
 fn invalid_regex_pyerr(py: Python<'_>, message: String) -> PyErr {
-    if let Ok(errors_module) = PyModule::import_bound(py, "md_splice.errors") {
+    if let Ok(errors_module) = py.import("md_splice.errors") {
         if let Ok(obj) = errors_module.getattr("InvalidRegexError") {
-            if let Ok(error_type) = obj.downcast_into::<PyType>() {
-                return PyErr::from_type_bound(error_type, (message,));
+            if let Ok(error_type) = obj.cast_into::<PyType>() {
+                return PyErr::from_type(error_type, (message,));
             }
         }
     }
@@ -713,7 +714,7 @@ fn extract_regex_flags(py: Python<'_>, pattern_obj: &Bound<'_, PyAny>) -> PyResu
         return Ok(RegexFlags::default());
     }
 
-    let re_module = PyModule::import_bound(py, "re")?;
+    let re_module = py.import("re")?;
     let flag_ignorecase = re_module.getattr("IGNORECASE")?.extract::<u32>()?;
     let flag_multiline = re_module.getattr("MULTILINE")?.extract::<u32>()?;
     let flag_dotall = re_module.getattr("DOTALL")?.extract::<u32>()?;
@@ -862,17 +863,17 @@ fn diff_unified(before: &str, after: &str, fromfile: &str, tofile: &str) -> PyRe
 /// the loader first attempts YAML then falls back to JSON, matching the CLI.
 #[pyfunction]
 #[pyo3(signature = (text, *, format=None))]
-fn loads_operations(py: Python<'_>, text: &str, format: Option<&str>) -> PyResult<PyObject> {
+fn loads_operations(py: Python<'_>, text: &str, format: Option<&str>) -> PyResult<Py<PyAny>> {
     let operations = parse_operations(text, format).map_err(map_splice_error)?;
-    let types_module = PyModule::import_bound(py, "md_splice.types")?;
-    let py_list = PyList::empty_bound(py);
+    let types_module = py.import("md_splice.types")?;
+    let py_list = PyList::empty(py);
 
     for operation in &operations {
         let py_op = tx_operation_to_py(py, &types_module, operation)?;
         py_list.append(py_op)?;
     }
 
-    Ok(py_list.into_py(py))
+    Ok(py_list.into_any().unbind())
 }
 
 /// Serialize Python operation dataclasses to YAML or JSON.
@@ -930,7 +931,7 @@ fn tx_operation_to_py(
     py: Python<'_>,
     types_module: &Bound<'_, PyModule>,
     operation: &TxOperation,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     match operation {
         TxOperation::Insert(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
@@ -941,8 +942,8 @@ fn tx_operation_to_py(
             let selector = tx_selector_to_py(py, types_module, &op.selector)?;
             let class = types_module
                 .getattr("InsertOperation")?
-                .downcast_into::<PyType>()?;
-            let kwargs = PyDict::new_bound(py);
+                .cast_into::<PyType>()?;
+            let kwargs = PyDict::new(py);
             kwargs.set_item("selector", selector)?;
             if let Some(content) = &op.content {
                 kwargs.set_item("content", content)?;
@@ -950,7 +951,7 @@ fn tx_operation_to_py(
             let position = insert_position_to_py(py, types_module, op.position)?;
             kwargs.set_item("position", position)?;
             let instance = class.call((), Some(&kwargs))?;
-            Ok(instance.into_py(py))
+            Ok(instance.into_any().unbind())
         }
         TxOperation::Replace(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
@@ -961,8 +962,8 @@ fn tx_operation_to_py(
             let selector = tx_selector_to_py(py, types_module, &op.selector)?;
             let class = types_module
                 .getattr("ReplaceOperation")?
-                .downcast_into::<PyType>()?;
-            let kwargs = PyDict::new_bound(py);
+                .cast_into::<PyType>()?;
+            let kwargs = PyDict::new(py);
             kwargs.set_item("selector", selector)?;
             if let Some(content) = &op.content {
                 kwargs.set_item("content", content)?;
@@ -972,7 +973,7 @@ fn tx_operation_to_py(
                 kwargs.set_item("until", until_selector)?;
             }
             let instance = class.call((), Some(&kwargs))?;
-            Ok(instance.into_py(py))
+            Ok(instance.into_any().unbind())
         }
         TxOperation::Delete(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
@@ -981,8 +982,8 @@ fn tx_operation_to_py(
             let selector = tx_selector_to_py(py, types_module, &op.selector)?;
             let class = types_module
                 .getattr("DeleteOperation")?
-                .downcast_into::<PyType>()?;
-            let kwargs = PyDict::new_bound(py);
+                .cast_into::<PyType>()?;
+            let kwargs = PyDict::new(py);
             kwargs.set_item("selector", selector)?;
             kwargs.set_item("section", op.section)?;
             if let Some(until) = &op.until {
@@ -990,7 +991,7 @@ fn tx_operation_to_py(
                 kwargs.set_item("until", until_selector)?;
             }
             let instance = class.call((), Some(&kwargs))?;
-            Ok(instance.into_py(py))
+            Ok(instance.into_any().unbind())
         }
         TxOperation::SetFrontmatter(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
@@ -1000,12 +1001,12 @@ fn tx_operation_to_py(
 
             let class = types_module
                 .getattr("SetFrontmatterOperation")?
-                .downcast_into::<PyType>()?;
-            let kwargs = PyDict::new_bound(py);
+                .cast_into::<PyType>()?;
+            let kwargs = PyDict::new(py);
             kwargs.set_item("key", &op.key)?;
             let value = match &op.value {
                 Some(value) => yaml_value_to_py(py, value)?,
-                None => py.None().into_py(py),
+                None => py.None(),
             };
             kwargs.set_item("value", value)?;
             if let Some(format) = op.format {
@@ -1013,7 +1014,7 @@ fn tx_operation_to_py(
                 kwargs.set_item("format", format_value)?;
             }
             let instance = class.call((), Some(&kwargs))?;
-            Ok(instance.into_py(py))
+            Ok(instance.into_any().unbind())
         }
         TxOperation::DeleteFrontmatter(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
@@ -1021,11 +1022,11 @@ fn tx_operation_to_py(
 
             let class = types_module
                 .getattr("DeleteFrontmatterOperation")?
-                .downcast_into::<PyType>()?;
-            let kwargs = PyDict::new_bound(py);
+                .cast_into::<PyType>()?;
+            let kwargs = PyDict::new(py);
             kwargs.set_item("key", &op.key)?;
             let instance = class.call((), Some(&kwargs))?;
-            Ok(instance.into_py(py))
+            Ok(instance.into_any().unbind())
         }
         TxOperation::ReplaceFrontmatter(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
@@ -1035,11 +1036,11 @@ fn tx_operation_to_py(
 
             let class = types_module
                 .getattr("ReplaceFrontmatterOperation")?
-                .downcast_into::<PyType>()?;
-            let kwargs = PyDict::new_bound(py);
+                .cast_into::<PyType>()?;
+            let kwargs = PyDict::new(py);
             let content = match &op.content {
                 Some(value) => yaml_value_to_py(py, value)?,
-                None => py.None().into_py(py),
+                None => py.None(),
             };
             kwargs.set_item("content", content)?;
             if let Some(format) = op.format {
@@ -1047,7 +1048,7 @@ fn tx_operation_to_py(
                 kwargs.set_item("format", format_value)?;
             }
             let instance = class.call((), Some(&kwargs))?;
-            Ok(instance.into_py(py))
+            Ok(instance.into_any().unbind())
         }
     }
 }
@@ -1232,11 +1233,11 @@ fn tx_selector_to_py(
     py: Python<'_>,
     types_module: &Bound<'_, PyModule>,
     selector: &TxSelector,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let class = types_module
         .getattr("Selector")?
-        .downcast_into::<PyType>()?;
-    let kwargs = PyDict::new_bound(py);
+        .cast_into::<PyType>()?;
+    let kwargs = PyDict::new(py);
 
     if let Some(select_type) = &selector.select_type {
         kwargs.set_item("select_type", select_type)?;
@@ -1260,14 +1261,14 @@ fn tx_selector_to_py(
     }
 
     let instance = class.call((), Some(&kwargs))?;
-    Ok(instance.into_py(py))
+    Ok(instance.into_any().unbind())
 }
 
 fn insert_position_to_py(
-    py: Python<'_>,
+    _py: Python<'_>,
     types_module: &Bound<'_, PyModule>,
     position: TxInsertPosition,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let enum_class = types_module.getattr("InsertPosition")?;
     let variant_name = match position {
         TxInsertPosition::Before => "BEFORE",
@@ -1275,7 +1276,7 @@ fn insert_position_to_py(
         TxInsertPosition::PrependChild => "PREPEND_CHILD",
         TxInsertPosition::AppendChild => "APPEND_CHILD",
     };
-    Ok(enum_class.getattr(variant_name)?.into_py(py))
+    Ok(enum_class.getattr(variant_name)?.into_any().unbind())
 }
 
 fn insert_position_to_str(position: TxInsertPosition) -> &'static str {
@@ -1288,16 +1289,16 @@ fn insert_position_to_str(position: TxInsertPosition) -> &'static str {
 }
 
 fn frontmatter_format_to_py(
-    py: Python<'_>,
+    _py: Python<'_>,
     types_module: &Bound<'_, PyModule>,
     format: FrontmatterFormat,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let enum_class = types_module.getattr("FrontmatterFormat")?;
     let variant_name = match format {
         FrontmatterFormat::Yaml => "YAML",
         FrontmatterFormat::Toml => "TOML",
     };
-    Ok(enum_class.getattr(variant_name)?.into_py(py))
+    Ok(enum_class.getattr(variant_name)?.into_any().unbind())
 }
 
 fn frontmatter_format_to_str(format: FrontmatterFormat) -> &'static str {
