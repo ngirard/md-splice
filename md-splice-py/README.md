@@ -94,3 +94,15 @@ The resulting files appear under `target/` (for wheels) and `dist/` (for the
 sdist). Both artifacts embed the synchronized version number and include the
 project license, changelog, and README so that PyPI consumers receive the same
 context as the Rust crate.
+
+## Continuous integration for wheels
+
+The repository's [**Python Wheels** workflow](../.github/workflows/python-wheels.yml)
+builds and tests distributable artifacts on every push and pull request. The
+matrix covers manylinux (x86_64 and aarch64), musllinux (x86_64), macOS (x86_64
+and arm64), and Windows (x86_64) across Python 3.8 through 3.12. Each job
+installs the freshly built wheel into a clean virtual environment and runs the
+full pytest suite copied into a temporary directory so imports exercise the
+published package. The resulting wheels and sdist are uploaded as workflow
+artifacts, making it straightforward to promote the verified artifacts to PyPI
+once a release tag is cut.
