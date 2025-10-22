@@ -25,7 +25,7 @@ permissions:
 jobs:
   linux-manylinux:
     name: manylinux (${{ matrix.target }})
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -78,7 +78,7 @@ jobs:
 
   linux-musllinux:
     name: musllinux (x86_64)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -183,7 +183,7 @@ jobs:
 
   sdist:
     name: Source distribution
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Build sdist
