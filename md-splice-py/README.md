@@ -106,3 +106,13 @@ full pytest suite copied into a temporary directory so imports exercise the
 published package. The resulting wheels and sdist are uploaded as workflow
 artifacts, making it straightforward to promote the verified artifacts to PyPI
 once a release tag is cut.
+
+## Publishing releases
+
+Cutting a Git tag matching `v*` re-runs the wheel matrix and, when the
+`PYPI_API_TOKEN` repository secret is present, automatically uploads all wheels
+and the source distribution to PyPI via `pypa/gh-action-pypi-publish`. The token
+should be a scoped PyPI API token with upload rights for the `md-splice` project
+and can be rotated without touching the workflow. If the secret is absent the
+publish step is skipped, allowing dry-run release rehearsals before credentials
+are provisioned.

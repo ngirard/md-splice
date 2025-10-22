@@ -99,3 +99,9 @@ update 18
 - Each CI job now installs the freshly built wheel into an isolated virtual environment, copies the pytest suite to a temporary directory, and runs it so imports exercise the published artifact rather than the source tree.
 - Documented the workflow in the Python README and recorded the CI enhancement in the changelog to guide future release automation.
 - Status: CI scripting complete; upcoming work can focus on release automation and PyPI publication. Agents: DO NOT upload anything on crates.io / pypi by yourself.
+
+update 19
+- Extended the Python Wheels workflow to trigger on release tags, fan-in the platform artifacts, and publish them to PyPI automatically when a `PYPI_API_TOKEN` secret is configured, skipping safely when credentials are absent.
+- Documented the tag-triggered release path and credential requirements in the Python README so maintainers can provision tokens with confidence.
+- Logged the new automation in the changelog to keep the release process transparent for future contributors.
+- Next: validate the workflow with a dry-run tag once credentials are ready and continue preparing for the inaugural PyPI publication.

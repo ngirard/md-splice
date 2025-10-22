@@ -18,6 +18,9 @@ and the project adheres to semantic versioning in lockstep with the Rust core.
   installing each artifact into a clean virtual environment before running the
   full pytest suite. The workflow uploads the validated wheels and sdist as
   artifacts to streamline promotion to PyPI once releases are tagged.
+- Extended the workflow with a tag-triggered publish job that aggregates the
+  built artifacts and uploads them to PyPI when the `PYPI_API_TOKEN` secret is
+  configured, while safely skipping publication for dry runs without credentials.
 
 ## [0.5.0] - 2025-10-21
 
