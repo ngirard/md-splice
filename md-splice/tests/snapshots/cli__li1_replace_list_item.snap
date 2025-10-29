@@ -1,9 +1,9 @@
 ---
-source: tests/cli.rs
+source: md-splice/tests/cli.rs
 expression: output_content
 ---
 # A List
 
- - Item One
- - Item 2 (Replaced)
- - Item Three
+- Item One
+- Item 2 (Replaced)
+- Item Three

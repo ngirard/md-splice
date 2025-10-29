@@ -1,10 +1,10 @@
 ---
-source: tests/cli.rs
+source: md-splice/tests/cli.rs
 expression: output_content
 ---
 # A List
 
- - Item One
- - Item Two
- - Item 2.5 (Inserted)
- - Item Three
+- Item One
+- Item Two
+- Item 2.5 (Inserted)
+- Item Three
