@@ -1,0 +1,16 @@
+---
+source: md-splice/tests/cli.rs
+expression: redact_version(&stdout)
+---
+Apply a sequence of transactional operations to the document
+
+Usage: md-splice apply [OPTIONS]
+
+Options:
+  -f, --file <FILE_PATH>          The Markdown file to modify. [default: reads from stdin]
+  -O, --operations-file <PATH>    Path to a JSON or YAML file containing the operations. Use '-' for stdin
+  -o, --output <OUTPUT_PATH>      Write the output to a new file instead of modifying the original
+      --operations <JSON_STRING>  JSON string describing the operations inline
+      --dry-run                   Preview the result without writing any files
+      --diff                      Show a diff of the pending changes instead of writing files
+  -h, --help                      Print help

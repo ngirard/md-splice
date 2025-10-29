@@ -47,6 +47,14 @@ fn test_i1_help_flag_replace() {
 }
 
 #[test]
+fn test_i1_help_flag_apply() {
+    let output = cmd().args(["apply", "--help"]).output().unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    assert_snapshot!("i1_help_apply", redact_version(&stdout));
+}
+
+#[test]
 fn test_i2_file_io_replace_with_output() {
     // Setup: Create a temporary directory and an input file.
     let temp = assert_fs::TempDir::new().unwrap();
