@@ -17,7 +17,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             archive_extension: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
