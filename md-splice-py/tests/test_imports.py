@@ -9,7 +9,7 @@ from md_splice import (
 
 
 def test_version_exposed():
-    assert __version__ == "0.5.0"
+    assert __version__ == "0.5.1"
 
 
 def test_from_string_and_render_round_trip():

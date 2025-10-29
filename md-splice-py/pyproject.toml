@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "md-splice"
-version = "0.5.0"
+version = "0.5.1"
 description = "Python bindings for the md-splice Markdown editing toolkit"
 readme = "README.md"
 requires-python = ">=3.10"

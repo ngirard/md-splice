@@ -85,12 +85,13 @@ fn insert_task_within_section() {
     cmd.assert().success();
 
     let result = std::fs::read_to_string(file.path()).unwrap();
-    assert_snapshot!(result, @r###"# High Priority
+    assert_snapshot!(result, @r"
+    # High Priority
 
 - [ ] Upgrade dependencies
 - [ ] Address security vulnerability
 
-# Backlog
+    # Backlog
 
 - [ ] Investigate new feature
 "###);
