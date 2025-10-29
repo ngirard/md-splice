@@ -19,9 +19,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive_extension: tar.gz
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            archive_extension: tar.gz
+          #- os: macos-latest
+          #  target: x86_64-apple-darwin
+          #  archive_extension: tar.gz
           #- os: windows-latest
           #  target: x86_64-pc-windows-msvc
           #  archive_extension: zip
