@@ -124,5 +124,5 @@ fn get_all_list_items_with_custom_separator() {
 
     let assert = cmd.assert().success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
-    assert_snapshot!(stdout, @" - [ ] One--- - [ ] Two");
+    assert_snapshot!(stdout, @"- [ ] One---- [ ] Two");
 }

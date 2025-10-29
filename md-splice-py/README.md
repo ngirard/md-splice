@@ -22,7 +22,7 @@ operations = loads_operations("""
     select_type: h2
     select_contains: Changelog
   position: after
-  content: |
+  content: |-
     ## Release notes
     - Initial Python bindings
 """)
@@ -125,7 +125,7 @@ in `goal-Python-library/Specification.md`.
 
 The project ships both source distributions and wheels generated via
 [`maturin`](https://github.com/PyO3/maturin). To build release artifacts aligned
-with the Rust `0.5.0` tag:
+with the Rust `0.5.1` tag:
 
 ```bash
 python -m pip install maturin
