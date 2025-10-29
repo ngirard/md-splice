@@ -2,6 +2,7 @@ use assert_cmd::Command;
 use assert_fs::prelude::*;
 use insta::assert_snapshot;
 use predicates::prelude::*;
+use serde_json::json;
 
 fn cmd() -> Command {
     Command::cargo_bin(env!("CARGO_PKG_NAME")).unwrap()
@@ -184,6 +185,35 @@ fn apply_command_supports_diff_output() {
 
     let current_content = std::fs::read_to_string(input_file.path()).unwrap();
     assert_eq!(current_content, original_content);
+}
+
+#[test]
+fn apply_command_supports_inline_operations() {
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# Title\n\nReplace me inline.\n")
+        .unwrap();
+
+    let operations = json!([
+        {
+            "op": "replace",
+            "selector": { "select_contains": "Replace me inline." },
+            "content": "Updated via inline operations.",
+        }
+    ]);
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("apply")
+        .arg("--operations")
+        .arg(operations.to_string())
+        .assert()
+        .success();
+
+    let content = std::fs::read_to_string(input_file.path()).unwrap();
+    assert_eq!(content, "# Title\n\nUpdated via inline operations.");
 }
 
 #[test]

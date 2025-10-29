@@ -1,10 +1,6 @@
 use md_splice_lib::transaction::{
-    InsertOperation,
-    InsertPosition as TxInsertPosition,
-    Operation,
-    ReplaceOperation,
-    Selector as TxSelector,
-    SetFrontmatterOperation,
+    InsertOperation, InsertPosition as TxInsertPosition, Operation, ReplaceOperation,
+    Selector as TxSelector, SetFrontmatterOperation,
 };
 use md_splice_lib::MarkdownDocument;
 use serde_yaml::Value as YamlValue;

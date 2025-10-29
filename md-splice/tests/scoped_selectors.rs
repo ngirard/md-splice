@@ -88,11 +88,11 @@ fn insert_task_within_section() {
     assert_snapshot!(result, @r"
     # High Priority
 
-    - [ ] Upgrade dependencies
-    - [ ] Address security vulnerability
+- [ ] Upgrade dependencies
+- [ ] Address security vulnerability
 
     # Backlog
 
-    - [ ] Investigate new feature
-    ");
+- [ ] Investigate new feature
+"###);
 }
