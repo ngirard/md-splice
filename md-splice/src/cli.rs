@@ -390,7 +390,9 @@ pub enum InsertPosition {
     /// Insert after the selected node (as a sibling).
     After,
     /// Insert as the first child of the selected node/section.
+    #[value(alias = "prepend_child")]
     PrependChild,
     /// Insert as the last child of the selected node/section.
+    #[value(alias = "append_child")]
     AppendChild,
 }

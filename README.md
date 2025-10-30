@@ -823,6 +823,8 @@ Used with the `insert` command to specify where new content should go.
 * `prepend-child`: Inserts the new content as the *first child* of the selected node. This is only valid for container nodes like `blockquote` or `list`, and has special behavior for `heading` nodes (see example 3).
 * `append-child`: Inserts the new content as the *last child* of the selected node.
 
+Multi-word keywords accept both hyphenated and underscore forms throughout the CLI and operation files (for example, `append-child` and `append_child`).
+
 ## Development
 
 ### Setup

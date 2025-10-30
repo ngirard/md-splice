@@ -491,7 +491,9 @@ fn py_insert_position_to_rust(position: &Bound<'_, PyAny>) -> PyResult<TxInsertP
         position.extract()?
     };
 
-    match value.as_str() {
+    let normalized = value.replace('-', "_");
+
+    match normalized.as_str() {
         "before" => Ok(TxInsertPosition::Before),
         "after" => Ok(TxInsertPosition::After),
         "prepend_child" => Ok(TxInsertPosition::PrependChild),

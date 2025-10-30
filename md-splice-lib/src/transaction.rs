@@ -171,8 +171,10 @@ pub enum InsertPosition {
     #[default]
     After,
     /// Insert as the first child of the selector node.
+    #[serde(alias = "prepend-child")]
     PrependChild,
     /// Insert as the last child of the selector node.
+    #[serde(alias = "append-child")]
     AppendChild,
 }
 
@@ -352,6 +354,42 @@ mod tests {
                 assert_eq!(mapping.len(), 2);
             }
             other => panic!("expected replace_frontmatter operation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn deserialize_insert_position_hyphenated_aliases() {
+        let data = r#"
+        [
+            {
+                "op": "insert",
+                "selector": {
+                    "select_type": "li"
+                },
+                "position": "append-child",
+                "content": "- nested"
+            },
+            {
+                "op": "insert",
+                "selector": {
+                    "select_type": "li"
+                },
+                "position": "prepend-child",
+                "content": "- nested"
+            }
+        ]
+        "#;
+
+        let operations: Vec<Operation> = serde_json::from_str(data).unwrap();
+
+        match &operations[0] {
+            Operation::Insert(op) => assert_eq!(op.position, InsertPosition::AppendChild),
+            other => panic!("expected insert operation, got {other:?}"),
+        }
+
+        match &operations[1] {
+            Operation::Insert(op) => assert_eq!(op.position, InsertPosition::PrependChild),
+            other => panic!("expected insert operation, got {other:?}"),
         }
     }
 }

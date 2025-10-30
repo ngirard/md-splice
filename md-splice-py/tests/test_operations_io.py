@@ -101,3 +101,33 @@ def test_loads_operations_rejects_file_fields() -> None:
 
     with pytest.raises(OperationParseError):
         loads_operations(yaml_with_file)
+
+
+def test_loads_operations_accepts_hyphenated_positions() -> None:
+    yaml_with_hyphen = dedent(
+        """
+        - op: insert
+          selector:
+            select_type: li
+          position: append-child
+          content: "- [ ] New subtask"
+        """
+    )
+
+    operations = loads_operations(yaml_with_hyphen)
+
+    assert operations[0].position is InsertPosition.APPEND_CHILD
+
+
+def test_dumps_operations_accepts_hyphenated_position_strings() -> None:
+    ops = [
+        InsertOperation(
+            selector=Selector(select_type="p"),
+            content="Inserted",
+            position="append-child",
+        )
+    ]
+
+    rendered = dumps_operations(ops)
+
+    assert "append_child" in rendered
