@@ -361,6 +361,37 @@ fn test_li4_end_to_end_nested_insert() {
 }
 
 #[test]
+fn test_li4_end_to_end_nested_insert_alias() {
+    // LI4-alias: Allow underscore form for insert position values.
+    let temp = assert_fs::TempDir::new().unwrap();
+    let input_file = temp.child("input.md");
+    input_file
+        .write_str("# My Tasks\n- [x] Buy milk\n- [ ] Write the report\n- [ ] Call the client\n")
+        .unwrap();
+    let output_file = temp.child("output.md");
+
+    cmd()
+        .arg("--file")
+        .arg(input_file.path())
+        .arg("--output")
+        .arg(output_file.path())
+        .arg("insert")
+        .arg("--select-type")
+        .arg("li")
+        .arg("--select-contains")
+        .arg("Write the report")
+        .arg("--position")
+        .arg("append_child")
+        .arg("--content")
+        .arg("  - [ ] Write the first section")
+        .assert()
+        .success();
+
+    let output_content = std::fs::read_to_string(output_file.path()).unwrap();
+    assert!(output_content.contains("  - [ ] Write the first section"));
+}
+
+#[test]
 fn test_i7_source_from_stdin() {
     // I7: Pipe a file into md-splice (no --file arg) and verify the output on STDOUT.
     let input_md = "# Source from STDIN\n\nThis is the original paragraph.\n";
