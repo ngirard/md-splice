@@ -91,6 +91,32 @@ Key advantages:
 Operations can be provided through `--operations-file <PATH>` (supports JSON or YAML and accepts `-` for stdin) or inline
 via `--operations '<JSON>'`. The CLI automatically detects JSON vs. YAML when reading from a file.
 
+To keep everything in one shell command, you can pipe a YAML transaction directly with a heredoc. The example below appends a
+task under the "Tasks" heading and rewrites the "Notes" section without creating any intermediate files:
+
+```sh
+md-splice --file project.md apply --operations-file - <<'YAML'
+- op: insert
+  selector:
+    select_type: h2
+    select_contains: "Tasks"
+  position: append_child
+  content: "- [ ] Schedule kickoff meeting"
+- op: replace
+  selector:
+    select_type: h2
+    select_contains: "Notes"
+  until:
+    select_type: h2
+  content: |
+    ## Notes
+
+    Updated notes go here.
+YAML
+```
+
+Because `--operations-file -` reads from standard input, the heredoc content is parsed as if it were in an external YAML file.
+
 Frontmatter operations (`set_frontmatter`, `delete_frontmatter`, and `replace_frontmatter`) follow the same YAML parsing rules as the standalone `frontmatter` subcommands, so values can come from inline YAML or external files. These operations can be freely mixed with body edits inside a single transaction while preserving atomicity.
 
 Example operations file (`changes.yaml`):
