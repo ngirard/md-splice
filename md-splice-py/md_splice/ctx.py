@@ -153,9 +153,7 @@ class MdEdit:
             message, category, filename, lineno, file=None, line=None
         ) -> None:
             if category is UserWarning and _AMBIGUITY_WARNING_SNIPPET in str(message):
-                raise OperationFailedError(
-                    f"Ambiguity detected: {message}"
-                )
+                raise OperationFailedError(f"Ambiguity detected: {message}")
             if previous is not None:
                 previous(message, category, filename, lineno, file=file, line=line)
                 return
@@ -231,4 +229,3 @@ class MdBatchEdit(MdEdit):
         if self._batched_ops:
             assert self._doc is not None
             self._doc.apply(self._batched_ops)
-

@@ -91,6 +91,22 @@ class InvalidRegexError(MdSpliceError):
     """Raised when a provided regular expression pattern is invalid."""
 
 
+class SelectorAliasNotDefinedError(MdSpliceError):
+    """Raised when a selector alias reference has not been defined."""
+
+
+class SelectorAliasAlreadyDefinedError(MdSpliceError):
+    """Raised when attempting to redefine an existing selector alias."""
+
+
+class AmbiguousSelectorSourceError(MdSpliceError):
+    """Raised when both selector and selector_ref inputs are provided."""
+
+
+class AmbiguousNestedSelectorSourceError(MdSpliceError):
+    """Raised when nested selectors specify both inline and referenced handles."""
+
+
 __all__ = [
     "MdSpliceError",
     "NodeNotFoundError",
@@ -112,4 +128,8 @@ __all__ = [
     "OperationFailedError",
     "IoError",
     "InvalidRegexError",
+    "SelectorAliasNotDefinedError",
+    "SelectorAliasAlreadyDefinedError",
+    "AmbiguousSelectorSourceError",
+    "AmbiguousNestedSelectorSourceError",
 ]

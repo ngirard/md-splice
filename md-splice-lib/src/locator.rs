@@ -21,7 +21,7 @@ pub enum FoundNode<'a> {
 }
 
 /// A set of criteria for selecting a node.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct Selector {
     pub select_type: Option<String>,
     pub select_contains: Option<String>,

@@ -39,15 +39,26 @@ class Selector:
     described in ``goal-Python-library/Specification.md``.
     """
 
+    alias: str | None = None
     select_type: str | None = None
     select_contains: str | None = None
     select_regex: Pattern[str] | str | None = field(default=None, repr=False)
     select_ordinal: int = 1
     after: Selector | None = None
+    after_ref: str | None = None
     within: Selector | None = None
+    within_ref: str | None = None
 
     def __post_init__(self) -> None:  # noqa: D401 - dataclass validation hook
-        if self.after is not None and self.within is not None:
+        has_after = self.after is not None or self.after_ref is not None
+        has_within = self.within is not None or self.within_ref is not None
+
+        if self.after is not None and self.after_ref is not None:
+            raise ValueError("Cannot specify both 'after' and 'after_ref'.")
+        if self.within is not None and self.within_ref is not None:
+            raise ValueError("Cannot specify both 'within' and 'within_ref'.")
+
+        if has_after and has_within:
             raise ConflictingScopeError(
                 "Selector cannot specify both 'after' and 'within' scopes."
             )
@@ -66,9 +77,7 @@ class Selector:
             # Already compiled or absent; no action needed.
             pass
         else:  # pragma: no cover - defensive branch
-            raise TypeError(
-                "select_regex must be a str, compiled Pattern, or None"
-            )
+            raise TypeError("select_regex must be a str, compiled Pattern, or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,9 +89,16 @@ class InsertOperation:
     defined in ``goal-Python-library/Specification.md``.
     """
 
-    selector: Selector
+    selector: Selector | None = None
+    selector_ref: str | None = None
     content: str | None = None
     position: InsertPosition = InsertPosition.AFTER
+
+    def __post_init__(self) -> None:
+        if (self.selector is None) == (self.selector_ref is None):
+            raise ValueError(
+                "InsertOperation requires exactly one of 'selector' or 'selector_ref'."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,9 +110,21 @@ class ReplaceOperation:
     transaction semantics.
     """
 
-    selector: Selector
+    selector: Selector | None = None
+    selector_ref: str | None = None
     content: str | None = None
     until: Selector | None = None
+    until_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.selector is None) == (self.selector_ref is None):
+            raise ValueError(
+                "ReplaceOperation requires exactly one of 'selector' or 'selector_ref'."
+            )
+        if self.until is not None and self.until_ref is not None:
+            raise ValueError(
+                "ReplaceOperation requires exactly one of 'until' or 'until_ref'."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,9 +136,21 @@ class DeleteOperation:
     selector. Both behaviors mirror the CLI and Rust core.
     """
 
-    selector: Selector
+    selector: Selector | None = None
+    selector_ref: str | None = None
     section: bool = False
     until: Selector | None = None
+    until_ref: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.selector is None) == (self.selector_ref is None):
+            raise ValueError(
+                "DeleteOperation requires exactly one of 'selector' or 'selector_ref'."
+            )
+        if self.until is not None and self.until_ref is not None:
+            raise ValueError(
+                "DeleteOperation requires exactly one of 'until' or 'until_ref'."
+            )
 
 
 @dataclass(frozen=True, slots=True)

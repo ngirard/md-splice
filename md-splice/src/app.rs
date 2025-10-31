@@ -267,7 +267,8 @@ fn build_insert_operation(args: ModificationArgs) -> anyhow::Result<InsertOperat
     )?;
 
     Ok(InsertOperation {
-        selector,
+        selector: Some(selector),
+        selector_ref: None,
         comment: None,
         content,
         content_file,
@@ -327,11 +328,13 @@ fn build_replace_operation(args: ModificationArgs) -> anyhow::Result<ReplaceOper
     )?;
 
     Ok(ReplaceOperation {
-        selector,
+        selector: Some(selector),
+        selector_ref: None,
         comment: None,
         content,
         content_file,
         until: until_selector,
+        until_ref: None,
     })
 }
 
@@ -385,10 +388,12 @@ fn build_delete_operation(args: DeleteArgs) -> anyhow::Result<DeleteOperation> {
     )?;
 
     Ok(DeleteOperation {
-        selector,
+        selector: Some(selector),
+        selector_ref: None,
         comment: None,
         section,
         until: until_selector,
+        until_ref: None,
     })
 }
 
@@ -604,12 +609,15 @@ fn build_transaction_selector(
     }
 
     Ok(TxSelector {
+        alias: None,
         select_type,
         select_contains,
         select_regex,
         select_ordinal,
         after: after.map(Box::new),
+        after_ref: None,
         within: within.map(Box::new),
+        within_ref: None,
     })
 }
 
@@ -630,12 +638,15 @@ fn build_optional_transaction_selector(
     }
 
     Ok(Some(TxSelector {
+        alias: None,
         select_type,
         select_contains,
         select_regex,
         select_ordinal: select_ordinal.unwrap_or(1),
         after: None,
+        after_ref: None,
         within: None,
+        within_ref: None,
     }))
 }
 

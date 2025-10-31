@@ -297,6 +297,18 @@ fn map_splice_error_inner(py: Python<'_>, err: &SpliceError) -> PyResult<PyErr> 
         SpliceError::SectionRequiresHeading => ("SectionRequiresHeadingError", err.to_string()),
         SpliceError::ConflictingScopeModifiers => ("ConflictingScopeError", err.to_string()),
         SpliceError::RangeRequiresBlock => ("RangeRequiresBlockError", err.to_string()),
+        SpliceError::SelectorAliasNotDefined(_) => {
+            ("SelectorAliasNotDefinedError", err.to_string())
+        }
+        SpliceError::SelectorAliasAlreadyDefined(_) => {
+            ("SelectorAliasAlreadyDefinedError", err.to_string())
+        }
+        SpliceError::AmbiguousSelectorSource(_) => {
+            ("AmbiguousSelectorSourceError", err.to_string())
+        }
+        SpliceError::AmbiguousNestedSelectorSource(_) => {
+            ("AmbiguousNestedSelectorSourceError", err.to_string())
+        }
         SpliceError::FrontmatterMissing => ("FrontmatterMissingError", err.to_string()),
         SpliceError::FrontmatterKeyNotFound(_) => ("FrontmatterKeyNotFoundError", err.to_string()),
         SpliceError::FrontmatterParse(_) => ("FrontmatterParseError", err.to_string()),
@@ -352,12 +364,20 @@ fn py_operation_to_rust(py: Python<'_>, operation: &Bound<'_, PyAny>) -> PyResul
     match name.as_str() {
         "InsertOperation" => {
             let selector_obj = operation.getattr("selector")?;
-            let selector = py_selector_to_transaction(py, &selector_obj)?;
+            let selector = if selector_obj.is_none() {
+                None
+            } else {
+                Some(py_selector_to_transaction(py, &selector_obj)?)
+            };
+            let selector_ref = operation
+                .getattr("selector_ref")?
+                .extract::<Option<String>>()?;
             let content = operation.getattr("content")?.extract::<Option<String>>()?;
             let position_obj = operation.getattr("position")?;
             let position = py_insert_position_to_rust(&position_obj)?;
             Ok(TxOperation::Insert(TxInsertOperation {
                 selector,
+                selector_ref,
                 comment: None,
                 content,
                 content_file: None,
@@ -366,7 +386,14 @@ fn py_operation_to_rust(py: Python<'_>, operation: &Bound<'_, PyAny>) -> PyResul
         }
         "ReplaceOperation" => {
             let selector_obj = operation.getattr("selector")?;
-            let selector = py_selector_to_transaction(py, &selector_obj)?;
+            let selector = if selector_obj.is_none() {
+                None
+            } else {
+                Some(py_selector_to_transaction(py, &selector_obj)?)
+            };
+            let selector_ref = operation
+                .getattr("selector_ref")?
+                .extract::<Option<String>>()?;
             let content = operation.getattr("content")?.extract::<Option<String>>()?;
             let until_obj = operation.getattr("until")?;
             let until = if until_obj.is_none() {
@@ -374,17 +401,29 @@ fn py_operation_to_rust(py: Python<'_>, operation: &Bound<'_, PyAny>) -> PyResul
             } else {
                 Some(py_selector_to_transaction(py, &until_obj)?)
             };
+            let until_ref = operation
+                .getattr("until_ref")?
+                .extract::<Option<String>>()?;
             Ok(TxOperation::Replace(TxReplaceOperation {
                 selector,
+                selector_ref,
                 comment: None,
                 content,
                 content_file: None,
                 until,
+                until_ref,
             }))
         }
         "DeleteOperation" => {
             let selector_obj = operation.getattr("selector")?;
-            let selector = py_selector_to_transaction(py, &selector_obj)?;
+            let selector = if selector_obj.is_none() {
+                None
+            } else {
+                Some(py_selector_to_transaction(py, &selector_obj)?)
+            };
+            let selector_ref = operation
+                .getattr("selector_ref")?
+                .extract::<Option<String>>()?;
             let section = operation.getattr("section")?.extract::<bool>()?;
             let until_obj = operation.getattr("until")?;
             let until = if until_obj.is_none() {
@@ -392,11 +431,16 @@ fn py_operation_to_rust(py: Python<'_>, operation: &Bound<'_, PyAny>) -> PyResul
             } else {
                 Some(py_selector_to_transaction(py, &until_obj)?)
             };
+            let until_ref = operation
+                .getattr("until_ref")?
+                .extract::<Option<String>>()?;
             Ok(TxOperation::Delete(TxDeleteOperation {
                 selector,
+                selector_ref,
                 comment: None,
                 section,
                 until,
+                until_ref,
             }))
         }
         "SetFrontmatterOperation" => {
@@ -448,6 +492,7 @@ fn py_operation_to_rust(py: Python<'_>, operation: &Bound<'_, PyAny>) -> PyResul
 }
 
 fn py_selector_to_transaction(py: Python<'_>, selector: &Bound<'_, PyAny>) -> PyResult<TxSelector> {
+    let alias = selector.getattr("alias")?.extract::<Option<String>>()?;
     let select_type = selector
         .getattr("select_type")?
         .extract::<Option<String>>()?;
@@ -467,20 +512,27 @@ fn py_selector_to_transaction(py: Python<'_>, selector: &Bound<'_, PyAny>) -> Py
     } else {
         Some(Box::new(py_selector_to_transaction(py, &after_obj)?))
     };
+    let after_ref = selector.getattr("after_ref")?.extract::<Option<String>>()?;
     let within_obj = selector.getattr("within")?;
     let within = if within_obj.is_none() {
         None
     } else {
         Some(Box::new(py_selector_to_transaction(py, &within_obj)?))
     };
+    let within_ref = selector
+        .getattr("within_ref")?
+        .extract::<Option<String>>()?;
 
     Ok(TxSelector {
+        alias,
         select_type,
         select_contains,
         select_regex,
         select_ordinal,
         after,
+        after_ref,
         within,
+        within_ref,
     })
 }
 
@@ -939,12 +991,17 @@ fn tx_operation_to_py(
             ensure_operation_field_absent(op.content_file.as_ref(), "content_file")
                 .map_err(map_splice_error)?;
 
-            let selector = tx_selector_to_py(py, types_module, &op.selector)?;
             let class = types_module
                 .getattr("InsertOperation")?
                 .cast_into::<PyType>()?;
             let kwargs = PyDict::new(py);
-            kwargs.set_item("selector", selector)?;
+            if let Some(selector) = &op.selector {
+                let selector_value = tx_selector_to_py(py, types_module, selector)?;
+                kwargs.set_item("selector", selector_value)?;
+            }
+            if let Some(selector_ref) = &op.selector_ref {
+                kwargs.set_item("selector_ref", selector_ref)?;
+            }
             if let Some(content) = &op.content {
                 kwargs.set_item("content", content)?;
             }
@@ -959,18 +1016,26 @@ fn tx_operation_to_py(
             ensure_operation_field_absent(op.content_file.as_ref(), "content_file")
                 .map_err(map_splice_error)?;
 
-            let selector = tx_selector_to_py(py, types_module, &op.selector)?;
             let class = types_module
                 .getattr("ReplaceOperation")?
                 .cast_into::<PyType>()?;
             let kwargs = PyDict::new(py);
-            kwargs.set_item("selector", selector)?;
+            if let Some(selector) = &op.selector {
+                let selector_value = tx_selector_to_py(py, types_module, selector)?;
+                kwargs.set_item("selector", selector_value)?;
+            }
+            if let Some(selector_ref) = &op.selector_ref {
+                kwargs.set_item("selector_ref", selector_ref)?;
+            }
             if let Some(content) = &op.content {
                 kwargs.set_item("content", content)?;
             }
             if let Some(until) = &op.until {
                 let until_selector = tx_selector_to_py(py, types_module, until)?;
                 kwargs.set_item("until", until_selector)?;
+            }
+            if let Some(until_ref) = &op.until_ref {
+                kwargs.set_item("until_ref", until_ref)?;
             }
             let instance = class.call((), Some(&kwargs))?;
             Ok(instance.into_any().unbind())
@@ -979,16 +1044,24 @@ fn tx_operation_to_py(
             ensure_operation_field_absent(op.comment.as_ref(), "comment")
                 .map_err(map_splice_error)?;
 
-            let selector = tx_selector_to_py(py, types_module, &op.selector)?;
             let class = types_module
                 .getattr("DeleteOperation")?
                 .cast_into::<PyType>()?;
             let kwargs = PyDict::new(py);
-            kwargs.set_item("selector", selector)?;
+            if let Some(selector) = &op.selector {
+                let selector_value = tx_selector_to_py(py, types_module, selector)?;
+                kwargs.set_item("selector", selector_value)?;
+            }
+            if let Some(selector_ref) = &op.selector_ref {
+                kwargs.set_item("selector_ref", selector_ref)?;
+            }
             kwargs.set_item("section", op.section)?;
             if let Some(until) = &op.until {
                 let until_selector = tx_selector_to_py(py, types_module, until)?;
                 kwargs.set_item("until", until_selector)?;
+            }
+            if let Some(until_ref) = &op.until_ref {
+                kwargs.set_item("until_ref", until_ref)?;
             }
             let instance = class.call((), Some(&kwargs))?;
             Ok(instance.into_any().unbind())
@@ -1065,10 +1138,18 @@ fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, Spli
                 YamlValue::String("op".to_string()),
                 YamlValue::String("insert".to_string()),
             );
-            mapping.insert(
-                YamlValue::String("selector".to_string()),
-                tx_selector_to_yaml_value(&op.selector),
-            );
+            if let Some(selector) = &op.selector {
+                mapping.insert(
+                    YamlValue::String("selector".to_string()),
+                    tx_selector_to_yaml_value(selector),
+                );
+            }
+            if let Some(selector_ref) = &op.selector_ref {
+                mapping.insert(
+                    YamlValue::String("selector_ref".to_string()),
+                    YamlValue::String(selector_ref.clone()),
+                );
+            }
             if let Some(content) = &op.content {
                 mapping.insert(
                     YamlValue::String("content".to_string()),
@@ -1090,10 +1171,18 @@ fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, Spli
                 YamlValue::String("op".to_string()),
                 YamlValue::String("replace".to_string()),
             );
-            mapping.insert(
-                YamlValue::String("selector".to_string()),
-                tx_selector_to_yaml_value(&op.selector),
-            );
+            if let Some(selector) = &op.selector {
+                mapping.insert(
+                    YamlValue::String("selector".to_string()),
+                    tx_selector_to_yaml_value(selector),
+                );
+            }
+            if let Some(selector_ref) = &op.selector_ref {
+                mapping.insert(
+                    YamlValue::String("selector_ref".to_string()),
+                    YamlValue::String(selector_ref.clone()),
+                );
+            }
             if let Some(content) = &op.content {
                 mapping.insert(
                     YamlValue::String("content".to_string()),
@@ -1106,6 +1195,12 @@ fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, Spli
                     tx_selector_to_yaml_value(until),
                 );
             }
+            if let Some(until_ref) = &op.until_ref {
+                mapping.insert(
+                    YamlValue::String("until_ref".to_string()),
+                    YamlValue::String(until_ref.clone()),
+                );
+            }
         }
         TxOperation::Delete(op) => {
             ensure_operation_field_absent(op.comment.as_ref(), "comment")?;
@@ -1114,10 +1209,18 @@ fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, Spli
                 YamlValue::String("op".to_string()),
                 YamlValue::String("delete".to_string()),
             );
-            mapping.insert(
-                YamlValue::String("selector".to_string()),
-                tx_selector_to_yaml_value(&op.selector),
-            );
+            if let Some(selector) = &op.selector {
+                mapping.insert(
+                    YamlValue::String("selector".to_string()),
+                    tx_selector_to_yaml_value(selector),
+                );
+            }
+            if let Some(selector_ref) = &op.selector_ref {
+                mapping.insert(
+                    YamlValue::String("selector_ref".to_string()),
+                    YamlValue::String(selector_ref.clone()),
+                );
+            }
             if op.section {
                 mapping.insert(
                     YamlValue::String("section".to_string()),
@@ -1128,6 +1231,12 @@ fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, Spli
                 mapping.insert(
                     YamlValue::String("until".to_string()),
                     tx_selector_to_yaml_value(until),
+                );
+            }
+            if let Some(until_ref) = &op.until_ref {
+                mapping.insert(
+                    YamlValue::String("until_ref".to_string()),
+                    YamlValue::String(until_ref.clone()),
                 );
             }
         }
@@ -1189,6 +1298,12 @@ fn tx_operation_to_yaml_value(operation: &TxOperation) -> Result<YamlValue, Spli
 fn tx_selector_to_yaml_value(selector: &TxSelector) -> YamlValue {
     let mut mapping = YamlMapping::new();
 
+    if let Some(alias) = &selector.alias {
+        mapping.insert(
+            YamlValue::String("alias".to_string()),
+            YamlValue::String(alias.clone()),
+        );
+    }
     if let Some(select_type) = &selector.select_type {
         mapping.insert(
             YamlValue::String("select_type".to_string()),
@@ -1219,10 +1334,22 @@ fn tx_selector_to_yaml_value(selector: &TxSelector) -> YamlValue {
             tx_selector_to_yaml_value(after),
         );
     }
+    if let Some(after_ref) = &selector.after_ref {
+        mapping.insert(
+            YamlValue::String("after_ref".to_string()),
+            YamlValue::String(after_ref.clone()),
+        );
+    }
     if let Some(within) = &selector.within {
         mapping.insert(
             YamlValue::String("within".to_string()),
             tx_selector_to_yaml_value(within),
+        );
+    }
+    if let Some(within_ref) = &selector.within_ref {
+        mapping.insert(
+            YamlValue::String("within_ref".to_string()),
+            YamlValue::String(within_ref.clone()),
         );
     }
 
@@ -1237,6 +1364,9 @@ fn tx_selector_to_py(
     let class = types_module.getattr("Selector")?.cast_into::<PyType>()?;
     let kwargs = PyDict::new(py);
 
+    if let Some(alias) = &selector.alias {
+        kwargs.set_item("alias", alias)?;
+    }
     if let Some(select_type) = &selector.select_type {
         kwargs.set_item("select_type", select_type)?;
     }
@@ -1253,9 +1383,15 @@ fn tx_selector_to_py(
         let nested = tx_selector_to_py(py, types_module, after)?;
         kwargs.set_item("after", nested)?;
     }
+    if let Some(after_ref) = &selector.after_ref {
+        kwargs.set_item("after_ref", after_ref)?;
+    }
     if let Some(within) = &selector.within {
         let nested = tx_selector_to_py(py, types_module, within)?;
         kwargs.set_item("within", nested)?;
+    }
+    if let Some(within_ref) = &selector.within_ref {
+        kwargs.set_item("within_ref", within_ref)?;
     }
 
     let instance = class.call((), Some(&kwargs))?;

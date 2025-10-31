@@ -36,7 +36,9 @@ def test_apply_insert_and_render_updates_document() -> None:
     doc.apply(
         [
             InsertOperation(
-                selector=Selector(select_type="li", select_contains="Write documentation"),
+                selector=Selector(
+                    select_type="li", select_contains="Write documentation"
+                ),
                 content="- [ ] Add integration tests",
                 position=InsertPosition.BEFORE,
             )

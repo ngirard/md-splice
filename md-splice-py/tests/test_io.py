@@ -41,7 +41,9 @@ def test_write_in_place_persists_changes_atomically(tmp_path: Path) -> None:
     doc.apply(
         [
             InsertOperation(
-                selector=Selector(select_type="li", select_contains="Write documentation"),
+                selector=Selector(
+                    select_type="li", select_contains="Write documentation"
+                ),
                 content="- [ ] Ship release",
                 position=InsertPosition.AFTER,
             )
@@ -112,7 +114,9 @@ def test_write_to_creates_new_file(tmp_path: Path) -> None:
     assert output_path.read_text(encoding="utf-8") == doc.render()
 
 
-def test_write_to_supports_relative_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_write_to_supports_relative_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.chdir(tmp_path)
     doc = MarkdownDocument.from_string("Paragraph.\n")
 

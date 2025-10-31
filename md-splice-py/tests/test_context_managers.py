@@ -65,13 +65,15 @@ def test_commit_on_clean_exit_creates_backup(tmp_path) -> None:
     backup_path = tmp_path / "doc.md~"
 
     with MdEdit(target) as doc:
-        doc.apply([
-            InsertOperation(
-                selector=Selector(select_type="h1"),
-                position=InsertPosition.AFTER,
-                content="Inserted line.\n",
-            )
-        ])
+        doc.apply(
+            [
+                InsertOperation(
+                    selector=Selector(select_type="h1"),
+                    position=InsertPosition.AFTER,
+                    content="Inserted line.\n",
+                )
+            ]
+        )
 
     assert "Inserted line." in target.read_text(encoding="utf-8")
     assert backup_path.exists()
@@ -105,9 +107,7 @@ def test_ambiguity_escalates_by_default(tmp_path) -> None:
         with MdEdit(target, fail_on_ambiguity=False) as doc:
             doc.apply([_make_ambiguous_operation()])
     assert captured
-    assert any(
-        "matched multiple nodes" in str(warning.message) for warning in captured
-    )
+    assert any("matched multiple nodes" in str(warning.message) for warning in captured)
 
 
 def test_diff_preview_prints_unified_diff(tmp_path, capsys) -> None:
@@ -197,4 +197,3 @@ def test_warning_filter_scope(tmp_path) -> None:
         warnings.simplefilter("always")
         fresh_doc.apply([_make_ambiguous_operation()])
     assert captured_again
-
