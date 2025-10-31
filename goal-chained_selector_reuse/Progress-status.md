@@ -10,7 +10,7 @@
 ## Archive Reference
 
 Detailed historical updates live in
-`goal-Rust/Progress-archive.md`. Consult the archive for
+`Progress-archive.md`. Consult the archive for
 granular changelogs before drafting new summaries here.
 
 ## Archival Process
