@@ -425,4 +425,83 @@ mod tests {
             other => panic!("expected insert operation, got {other:?}"),
         }
     }
+
+    #[test]
+    fn deserialize_operations_with_selector_alias_handles() {
+        let data = r###"
+        - op: replace
+          selector:
+            alias: intro_h2
+            select_type: h2
+            select_contains: Introduction
+          content: "## Introduction"
+        - op: replace
+          selector:
+            alias: changelog_h2
+            select_type: h2
+            select_contains: Changelog
+            after_ref: intro_h2
+          content: "## Changelog"
+          until:
+            alias: outro_h2
+            select_type: h2
+            select_contains: Outro
+        - op: insert
+          selector_ref: changelog_h2
+          position: append_child
+          content: "- Added entry"
+        - op: delete
+          selector:
+            select_type: li
+            select_contains: Legacy
+            within_ref: changelog_h2
+          until_ref: outro_h2
+        "###;
+
+        let operations: Vec<Operation> = serde_yaml::from_str(data).unwrap();
+        assert_eq!(operations.len(), 4);
+
+        let Operation::Replace(intro_replace) = &operations[0] else {
+            panic!("expected replace operation for intro heading");
+        };
+        let intro_selector = intro_replace
+            .selector
+            .as_ref()
+            .expect("inline selector must exist");
+        assert_eq!(intro_selector.alias.as_deref(), Some("intro_h2"));
+        assert_eq!(intro_selector.select_type.as_deref(), Some("h2"));
+        assert_eq!(intro_selector.select_contains.as_deref(), Some("Introduction"));
+
+        let Operation::Replace(changelog_replace) = &operations[1] else {
+            panic!("expected replace operation for changelog heading");
+        };
+        let changelog_selector = changelog_replace
+            .selector
+            .as_ref()
+            .expect("inline selector must exist");
+        assert_eq!(changelog_selector.alias.as_deref(), Some("changelog_h2"));
+        assert_eq!(changelog_selector.after_ref.as_deref(), Some("intro_h2"));
+        let until_selector = changelog_replace
+            .until
+            .as_ref()
+            .expect("inline until selector must exist");
+        assert_eq!(until_selector.alias.as_deref(), Some("outro_h2"));
+
+        let Operation::Insert(insert_using_ref) = &operations[2] else {
+            panic!("expected insert operation using selector_ref");
+        };
+        assert!(insert_using_ref.selector.is_none());
+        assert_eq!(insert_using_ref.selector_ref.as_deref(), Some("changelog_h2"));
+        assert_eq!(insert_using_ref.position, InsertPosition::AppendChild);
+
+        let Operation::Delete(delete_within_ref) = &operations[3] else {
+            panic!("expected delete operation with within_ref");
+        };
+        let delete_selector = delete_within_ref
+            .selector
+            .as_ref()
+            .expect("inline selector must exist");
+        assert_eq!(delete_selector.within_ref.as_deref(), Some("changelog_h2"));
+        assert_eq!(delete_within_ref.until_ref.as_deref(), Some("outro_h2"));
+    }
 }

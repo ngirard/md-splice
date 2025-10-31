@@ -19,7 +19,11 @@ from md_splice import (
     SetFrontmatterOperation,
     diff_unified,
 )
-from md_splice.errors import OperationFailedError
+from md_splice.errors import (
+    OperationFailedError,
+    SelectorAliasAlreadyDefinedError,
+    SelectorAliasNotDefinedError,
+)
 
 
 def test_apply_insert_and_render_updates_document() -> None:
@@ -253,3 +257,105 @@ def test_diff_unified_includes_custom_headers() -> None:
     assert diff.startswith("--- before.md\n+++ after.md")
     assert "-Line two" in diff
     assert "+Line three" in diff
+
+
+def test_apply_supports_selector_alias_reuse() -> None:
+    doc = MarkdownDocument.from_string(
+        dedent(
+            """
+            # Project Log
+
+            ## Overview
+            Summary.
+
+            ## Changelog
+            - Legacy entry
+            """
+        ).lstrip()
+    )
+
+    doc.apply(
+        [
+            ReplaceOperation(
+                selector=Selector(
+                    alias="overview_h2",
+                    select_type="h2",
+                    select_contains="Overview",
+                ),
+                content="## Overview\nSummary.\n",
+            ),
+            ReplaceOperation(
+                selector=Selector(
+                    alias="changelog_h2",
+                    select_type="h2",
+                    select_contains="Changelog",
+                    after_ref="overview_h2",
+                ),
+                content="## Changelog\n- Legacy entry\n",
+            ),
+            InsertOperation(
+                selector_ref="changelog_h2",
+                content="- Added alias reuse support",
+                position=InsertPosition.APPEND_CHILD,
+            ),
+            ReplaceOperation(
+                selector_ref="changelog_h2",
+                content="## Changelog\n- Added alias reuse support\n- Pruned legacy tasks\n",
+            ),
+        ]
+    )
+
+    rendered = doc.render()
+    assert "- Added alias reuse support" in rendered
+    assert "- Pruned legacy tasks" in rendered
+
+
+def test_apply_errors_on_missing_selector_alias() -> None:
+    doc = MarkdownDocument.from_string("# Notes\n\n## Topics\n- Alpha\n")
+
+    with pytest.raises(SelectorAliasNotDefinedError):
+        doc.apply(
+            [
+                InsertOperation(
+                    selector_ref="missing_alias",
+                    content="- Beta",
+                    position=InsertPosition.APPEND_CHILD,
+                )
+            ]
+        )
+
+
+def test_apply_errors_on_duplicate_selector_alias() -> None:
+    doc = MarkdownDocument.from_string(
+        dedent(
+            """
+            # Notes
+
+            ## Overview
+            Details.
+            """
+        ).lstrip()
+    )
+
+    with pytest.raises(SelectorAliasAlreadyDefinedError):
+        doc.apply(
+            [
+                ReplaceOperation(
+                    selector=Selector(
+                        alias="dup_alias",
+                        select_type="h2",
+                        select_contains="Overview",
+                    ),
+                    content="## Overview\nDetails.\n",
+                ),
+                InsertOperation(
+                    selector=Selector(
+                        alias="dup_alias",
+                        select_type="h2",
+                        select_contains="Overview",
+                    ),
+                    content="## Duplicate heading",
+                    position=InsertPosition.AFTER,
+                ),
+            ]
+        )

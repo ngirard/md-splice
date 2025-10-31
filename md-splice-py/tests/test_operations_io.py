@@ -131,3 +131,78 @@ def test_dumps_operations_accepts_hyphenated_position_strings() -> None:
     rendered = dumps_operations(ops)
 
     assert "append_child" in rendered
+
+
+def test_loads_operations_parses_selector_alias_handles() -> None:
+    yaml_text = dedent(
+        """
+        - op: replace
+          selector:
+            alias: intro_h2
+            select_type: h2
+            select_contains: Introduction
+          content: "## Introduction"
+        - op: replace
+          selector:
+            alias: changelog_h2
+            select_type: h2
+            select_contains: Changelog
+            after_ref: intro_h2
+          content: "## Changelog"
+          until:
+            alias: outro_h2
+            select_type: h2
+            select_contains: Outro
+        - op: insert
+          selector_ref: changelog_h2
+          position: append_child
+          content: "- Added entry"
+        - op: delete
+          selector:
+            select_type: li
+            select_contains: Legacy
+            within_ref: changelog_h2
+          until_ref: outro_h2
+        """
+    )
+
+    operations = loads_operations(yaml_text)
+
+    assert isinstance(operations[0], ReplaceOperation)
+    assert operations[0].selector.alias == "intro_h2"
+    assert operations[1].selector.after_ref == "intro_h2"
+    assert operations[1].until.alias == "outro_h2"
+    assert operations[2].selector is None
+    assert operations[2].selector_ref == "changelog_h2"
+    assert operations[3].selector.within_ref == "changelog_h2"
+    assert operations[3].until_ref == "outro_h2"
+
+
+def test_dumps_operations_includes_alias_fields() -> None:
+    ops = [
+        ReplaceOperation(
+            selector=Selector(alias="intro_h2", select_type="h2"),
+            content="## Introduction",
+            until=Selector(alias="next_h2", select_type="h2"),
+        ),
+        InsertOperation(
+            selector_ref="intro_h2",
+            content="- Added entry",
+            position=InsertPosition.APPEND_CHILD,
+        ),
+        DeleteOperation(
+            selector=Selector(
+                select_type="li",
+                select_contains="Legacy",
+                within_ref="intro_h2",
+            ),
+            until_ref="next_h2",
+        ),
+    ]
+
+    rendered = dumps_operations(ops)
+
+    assert "alias: intro_h2" in rendered
+    assert "selector_ref: intro_h2" in rendered
+    assert "within_ref: intro_h2" in rendered
+    assert "until_ref: next_h2" in rendered

@@ -174,6 +174,69 @@ Operation variants accept additional fields:
 See [`goal-transactions/Transactions-specification.md`](goal-transactions/Transactions-specification.md) for the complete
 schema, examples, and behavioral guarantees.
 
+### Selector reuse with aliases
+
+Complex edits often target the same structural anchor multiple times. Instead of repeating the selector payload, assign an
+`alias` to any inline selector and reference it later with `selector_ref`. Nested scopes such as `after`/`within` selectors and
+range delimiters (`until`) accept `*_ref` counterparts that look up previously defined aliases.
+
+Without aliases the same selector must be duplicated, increasing the chance of copy-paste mistakes:
+
+```yaml
+- op: replace
+  selector:
+    select_type: h2
+    select_contains: Changelog
+  content: |
+    ## Changelog
+    - Initial entry
+- op: insert
+  selector:
+    select_type: h2
+    select_contains: Changelog
+  position: append_child
+  content: "- Added alias reuse"
+- op: delete
+  selector:
+    select_type: li
+    select_contains: Legacy
+    within:
+      select_type: h2
+      select_contains: Changelog
+```
+
+With aliases the selector is defined once and reused across operations:
+
+```yaml
+- op: replace
+  selector:
+    alias: changelog_h2
+    select_type: h2
+    select_contains: Changelog
+  content: |
+    ## Changelog
+    - Initial entry
+- op: insert
+  selector_ref: changelog_h2
+  position: append_child
+  content: "- Added alias reuse"
+- op: delete
+  selector:
+    select_type: li
+    select_contains: Legacy
+    within_ref: changelog_h2
+```
+
+Additional helpers keep nested relationships consistent:
+
+* `after_ref` scopes a selector to nodes that appear after an aliased anchor.
+* `within_ref` scopes to the descendants of an aliased selector.
+* `until_ref` uses a previously aliased selector to terminate range-based operations.
+
+If an operation provides both an inline selector and a `*_ref` handle for the same field, the transaction aborts with an error.
+Referencing an alias that has not been defined (or redefining an existing alias) also raises a descriptive error before any
+changes are committed.
+
 ## Frontmatter operations
 
 `md-splice` automatically detects YAML (`---`) and TOML (`+++`) frontmatter blocks at the top of a Markdown file, preserving the original format when metadata is updated. Keys accept dot and array notation such as `author.name` or `reviewers[0].email`, and nested maps are created on demand when writing values.

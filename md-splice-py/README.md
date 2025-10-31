@@ -38,6 +38,37 @@ The `MarkdownDocument` class also exposes `write_to(path)` for directing output 
 new file, and the operations helpers round-trip between the Python dataclasses and the
 YAML/JSON schema shared with the CLI tooling.
 
+### Selector aliases
+
+Longer transactions can reuse selectors by naming them once and referencing the alias
+in subsequent operations. Inline selectors accept an `alias` field, and operations can
+point at that alias via `selector_ref`. Nested scopes and range delimiters also accept
+`after_ref`, `within_ref`, and `until_ref`:
+
+```python
+from md_splice import InsertOperation, InsertPosition, ReplaceOperation, Selector
+
+ops = [
+    ReplaceOperation(
+        selector=Selector(
+            alias="changelog_h2",
+            select_type="h2",
+            select_contains="Changelog",
+        ),
+        content="## Changelog\n- Initial entry\n",
+    ),
+    InsertOperation(
+        selector_ref="changelog_h2",
+        position=InsertPosition.APPEND_CHILD,
+        content="- Added selector reuse support",
+    ),
+]
+```
+
+Referencing an undefined alias (or redefining an existing alias) raises a descriptive
+`SelectorAliasNotDefinedError`/`SelectorAliasAlreadyDefinedError` before any changes are
+committed.
+
 ## Transactions and atomic writes
 
 Operations passed to `MarkdownDocument.apply()` run inside a single transaction. If

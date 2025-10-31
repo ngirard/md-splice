@@ -33,3 +33,19 @@
 ### Follow-ups
 - Write dedicated alias-specific test cases (Rust + Python) to exercise `selector_ref`/`until_ref` behaviors and error variants.
 - Extend documentation (Milestone 6) in both READMEs with examples demonstrating selector reuse workflows.
+
+## update 03
+- Authored targeted tests in Rust (`transaction.rs`, `lib.rs`) and Python (`tests/test_apply.py`, `tests/test_operations_io.py`, `tests/test_selectors.py`) to exercise selector alias registration, `selector_ref` lookups, and reference validation logic.
+- Verified alias workflows end-to-end in both runtimes, including success cases and defensive errors for invalid reference usage.
+- Added documentation sections to the root README and Python README describing selector aliasing patterns, including before/after YAML examples and Python snippets.
+- Built the Python extension with `maturin develop` inside an ephemeral virtual environment to run the bindings test suite.
+- Ran the full Rust and Python test suites to confirm the new coverage passes (`cargo test`, `python -m pytest tests`).
+
+### Evidence
+- `cargo test`
+  - ✅ Full workspace succeeded with new alias tests.
+- `python -m pytest tests`
+  - ✅ Python bindings suite passed after building the extension.
+
+### Follow-ups
+- None pending; Milestones 5 and 6 are now complete.
