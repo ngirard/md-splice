@@ -71,12 +71,7 @@ def test_get_section_returns_heading_and_descendants():
         section=True,
     )
 
-    assert result == (
-        "## Alpha\n\n"
-        "Prelude line.\n\n"
-        "### Detail\n\n"
-        "Deep dive.\n"
-    )
+    assert result == ("## Alpha\n\nPrelude line.\n\n### Detail\n\nDeep dive.\n")
 
 
 def test_get_section_requires_heading():

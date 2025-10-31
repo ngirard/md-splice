@@ -37,6 +37,18 @@ pub enum SpliceError {
     #[error("Range selectors are only supported for block-level selections.")]
     RangeRequiresBlock,
 
+    #[error("Selector alias '{0}' was referenced before being defined.")]
+    SelectorAliasNotDefined(String),
+
+    #[error("Selector alias '{0}' has already been defined.")]
+    SelectorAliasAlreadyDefined(String),
+
+    #[error("Selector must specify exactly one of '{0}' or '{0}_ref'.")]
+    AmbiguousSelectorSource(String),
+
+    #[error("Nested selector must specify exactly one of '{0}' or '{0}_ref'.")]
+    AmbiguousNestedSelectorSource(String),
+
     #[error("No frontmatter exists in the document.")]
     FrontmatterMissing,
 

@@ -20,14 +20,18 @@ fn apply_insert_preserves_list_item_spacing() {
     let mut doc = MarkdownDocument::from_str(initial).expect("document loads");
 
     let operations = vec![Operation::Insert(InsertOperation {
-        selector: TxSelector {
+        selector: Some(TxSelector {
+            alias: None,
             select_type: Some("h2".to_string()),
             select_contains: Some("Changelog".to_string()),
             select_regex: None,
             select_ordinal: 1,
             after: None,
+            after_ref: None,
             within: None,
-        },
+            within_ref: None,
+        }),
+        selector_ref: None,
         comment: None,
         content: Some("## Release notes\n- Initial Python bindings\n".to_string()),
         content_file: None,
@@ -53,18 +57,23 @@ fn apply_replace_operation_updates_body() {
         MarkdownDocument::from_str("# Tasks\n\nStatus: In Progress.\n").expect("document loads");
 
     let operations = vec![Operation::Replace(ReplaceOperation {
-        selector: TxSelector {
+        selector: Some(TxSelector {
+            alias: None,
             select_type: None,
             select_contains: Some("Status: In Progress.".to_string()),
             select_regex: None,
             select_ordinal: 1,
             after: None,
+            after_ref: None,
             within: None,
-        },
+            within_ref: None,
+        }),
+        selector_ref: None,
         comment: None,
         content: Some("Status: Complete!\n".to_string()),
         content_file: None,
         until: None,
+        until_ref: None,
     })];
 
     doc.apply(operations).expect("apply succeeds");

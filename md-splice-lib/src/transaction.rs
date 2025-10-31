@@ -29,6 +29,9 @@ pub enum Operation {
 /// Criteria describing a node to match in the Markdown AST.
 pub struct Selector {
     #[serde(default)]
+    /// Optional alias assigned to this selector for later reuse.
+    pub alias: Option<String>,
+    #[serde(default)]
     /// Restricts matches to nodes of a given HTML-like element type (e.g., `h2`).
     pub select_type: Option<String>,
     #[serde(default)]
@@ -44,19 +47,28 @@ pub struct Selector {
     /// Narrows the search to nodes appearing after another selector.
     pub after: Option<Box<Selector>>,
     #[serde(default)]
+    /// Narrows the search to nodes appearing after a referenced selector alias.
+    pub after_ref: Option<String>,
+    #[serde(default)]
     /// Narrows the search to nodes contained within another selector's scope.
     pub within: Option<Box<Selector>>,
+    #[serde(default)]
+    /// Narrows the search to nodes contained within a referenced selector alias.
+    pub within_ref: Option<String>,
 }
 
 impl Default for Selector {
     fn default() -> Self {
         Self {
+            alias: None,
             select_type: None,
             select_contains: None,
             select_regex: None,
             select_ordinal: default_select_ordinal(),
             after: None,
+            after_ref: None,
             within: None,
+            within_ref: None,
         }
     }
 }
@@ -64,8 +76,12 @@ impl Default for Selector {
 #[derive(Debug, Deserialize, PartialEq, Clone, Default)]
 /// Describes where and how new content should be inserted relative to a selector.
 pub struct InsertOperation {
+    #[serde(default)]
     /// The selector that identifies the insertion anchor.
-    pub selector: Selector,
+    pub selector: Option<Selector>,
+    #[serde(default)]
+    /// Reference to a selector alias that identifies the insertion anchor.
+    pub selector_ref: Option<String>,
     #[serde(default)]
     /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
@@ -83,8 +99,12 @@ pub struct InsertOperation {
 #[derive(Debug, Deserialize, PartialEq, Clone, Default)]
 /// Describes a replacement of existing content matched by a selector.
 pub struct ReplaceOperation {
+    #[serde(default)]
     /// The selector that identifies the content to replace.
-    pub selector: Selector,
+    pub selector: Option<Selector>,
+    #[serde(default)]
+    /// Reference to a selector alias identifying the content to replace.
+    pub selector_ref: Option<String>,
     #[serde(default)]
     /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
@@ -97,13 +117,20 @@ pub struct ReplaceOperation {
     #[serde(default)]
     /// Optional selector delimiting the end of a multi-block replacement.
     pub until: Option<Selector>,
+    #[serde(default)]
+    /// Reference to an alias delimiting the end of a multi-block replacement.
+    pub until_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Clone, Default)]
 /// Describes deletion of content matched by a selector.
 pub struct DeleteOperation {
+    #[serde(default)]
     /// The selector identifying content to delete.
-    pub selector: Selector,
+    pub selector: Option<Selector>,
+    #[serde(default)]
+    /// Reference to a selector alias identifying content to delete.
+    pub selector_ref: Option<String>,
     #[serde(default)]
     /// Optional human-readable note recorded alongside the operation.
     pub comment: Option<String>,
@@ -113,6 +140,9 @@ pub struct DeleteOperation {
     #[serde(default)]
     /// Optional selector delimiting the end of a multi-block deletion.
     pub until: Option<Selector>,
+    #[serde(default)]
+    /// Reference to an alias delimiting the end of a multi-block deletion.
+    pub until_ref: Option<String>,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Clone, Default)]
@@ -218,13 +248,14 @@ mod tests {
 
         match &operations[0] {
             Operation::Replace(op) => {
+                let selector = op.selector.as_ref().expect("selector should be present");
                 assert_eq!(
-                    op.selector.select_contains.as_deref(),
+                    selector.select_contains.as_deref(),
                     Some("Status: In Progress")
                 );
                 assert_eq!(op.content.as_deref(), Some("Status: **Complete**"));
                 assert!(op.content_file.is_none());
-                assert!(op.selector.after.is_none());
+                assert!(selector.after.is_none());
                 assert!(op.until.is_none());
             }
             other => panic!("expected replace operation, got {other:?}"),
@@ -232,21 +263,23 @@ mod tests {
 
         match &operations[1] {
             Operation::Insert(op) => {
-                assert_eq!(op.selector.select_type.as_deref(), Some("li"));
+                let selector = op.selector.as_ref().expect("selector should be present");
+                assert_eq!(selector.select_type.as_deref(), Some("li"));
                 assert_eq!(
-                    op.selector.select_contains.as_deref(),
+                    selector.select_contains.as_deref(),
                     Some("Write documentation")
                 );
                 assert_eq!(op.position, InsertPosition::Before);
                 assert_eq!(op.content.as_deref(), Some("- [ ] Implement unit tests"));
-                assert!(op.selector.after.is_none());
+                assert!(selector.after.is_none());
             }
             other => panic!("expected insert operation, got {other:?}"),
         }
 
         match &operations[2] {
             Operation::Delete(op) => {
-                assert_eq!(op.selector.select_type.as_deref(), Some("h2"));
+                let selector = op.selector.as_ref().expect("selector should be present");
+                assert_eq!(selector.select_type.as_deref(), Some("h2"));
                 assert!(op.section);
                 assert!(op.until.is_none());
             }
@@ -286,7 +319,7 @@ mod tests {
             panic!("expected delete operation");
         };
 
-        let selector = &op.selector;
+        let selector = op.selector.as_ref().expect("selector should be present");
         assert_eq!(selector.select_type.as_deref(), Some("p"));
         assert!(selector.select_contains.is_none());
 

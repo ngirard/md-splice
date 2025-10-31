@@ -30,7 +30,7 @@
 //! };
 //!
 //! let operation = Operation::Insert(InsertOperation {
-//!     selector,
+//!     selector: Some(selector),
 //!     position: InsertPosition::AppendChild,
 //!     content: Some("- [ ] Review open issues".into()),
 //!     ..InsertOperation::default()
@@ -66,6 +66,7 @@ use markdown_ppp::parser::{parse_markdown, MarkdownParserState};
 use markdown_ppp::printer::{config::Config as PrinterConfig, render_markdown};
 use regex::Regex;
 use serde_yaml::{Mapping, Value as YamlValue};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, Read};
 use std::path::PathBuf;
@@ -216,22 +217,81 @@ fn apply_operations_with_ambiguity(
     let mut working_document = parsed_document.clone();
     let mut frontmatter_mutated = false;
     let mut ambiguity_detected = false;
+    let mut alias_map: HashMap<String, Selector> = HashMap::new();
 
     for operation in operations {
         match operation {
             Operation::Replace(replace_op) => {
-                let was_ambiguous = apply_replace_operation(&mut working_blocks, replace_op)
-                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                let SelectorResolution {
+                    selector,
+                    mut aliases,
+                } = resolve_operation_selector(
+                    &alias_map,
+                    replace_op.selector.as_ref(),
+                    replace_op.selector_ref.as_ref(),
+                    "selector",
+                )?;
+                let OptionalSelectorResolution {
+                    selector: until_selector,
+                    aliases: mut until_aliases,
+                } = resolve_optional_operation_selector(
+                    &alias_map,
+                    replace_op.until.as_ref(),
+                    replace_op.until_ref.as_ref(),
+                    "until",
+                )?;
+                let was_ambiguous = apply_replace_operation(
+                    &mut working_blocks,
+                    replace_op,
+                    selector,
+                    until_selector,
+                )
+                .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                aliases.append(&mut until_aliases);
+                register_aliases(&mut alias_map, aliases)?;
                 ambiguity_detected |= was_ambiguous;
             }
             Operation::Insert(insert_op) => {
-                let was_ambiguous = apply_insert_operation(&mut working_blocks, insert_op)
-                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                let SelectorResolution { selector, aliases } = resolve_operation_selector(
+                    &alias_map,
+                    insert_op.selector.as_ref(),
+                    insert_op.selector_ref.as_ref(),
+                    "selector",
+                )?;
+                let was_ambiguous =
+                    apply_insert_operation(&mut working_blocks, insert_op, selector)
+                        .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                register_aliases(&mut alias_map, aliases)?;
                 ambiguity_detected |= was_ambiguous;
             }
             Operation::Delete(delete_op) => {
-                let was_ambiguous = apply_delete_operation(&mut working_blocks, delete_op)
-                    .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                let SelectorResolution {
+                    selector,
+                    mut aliases,
+                } = resolve_operation_selector(
+                    &alias_map,
+                    delete_op.selector.as_ref(),
+                    delete_op.selector_ref.as_ref(),
+                    "selector",
+                )?;
+                let OptionalSelectorResolution {
+                    selector: until_selector,
+                    aliases: mut until_aliases,
+                } = resolve_optional_operation_selector(
+                    &alias_map,
+                    delete_op.until.as_ref(),
+                    delete_op.until_ref.as_ref(),
+                    "until",
+                )?;
+                let was_ambiguous = apply_delete_operation(
+                    &mut working_blocks,
+                    delete_op,
+                    selector,
+                    until_selector,
+                )
+                .map_err(|err| SpliceError::OperationFailed(err.to_string()))?;
+                aliases.append(&mut until_aliases);
+                register_aliases(&mut alias_map, aliases)?;
                 ambiguity_detected |= was_ambiguous;
             }
             Operation::SetFrontmatter(set_op) => {
@@ -265,17 +325,18 @@ fn apply_operations_with_ambiguity(
 fn apply_replace_operation(
     doc_blocks: &mut Vec<Block>,
     operation: ReplaceOperation,
+    selector: Selector,
+    until_selector: Option<Selector>,
 ) -> anyhow::Result<bool> {
     let ReplaceOperation {
-        selector,
+        selector: _,
+        selector_ref: _,
         comment: _,
         content,
         content_file,
-        until,
+        until: _,
+        until_ref: _,
     } = operation;
-
-    let selector = build_locator_selector(&selector)?;
-    let until_selector = build_optional_locator_selector(until.as_ref())?;
 
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
@@ -318,8 +379,17 @@ fn apply_replace_operation(
 fn apply_insert_operation(
     doc_blocks: &mut Vec<Block>,
     operation: InsertOperation,
+    selector: Selector,
 ) -> anyhow::Result<bool> {
-    let selector = build_locator_selector(&operation.selector)?;
+    let InsertOperation {
+        selector: _,
+        selector_ref: _,
+        comment: _,
+        content,
+        content_file,
+        position,
+    } = operation;
+
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
     if is_ambiguous {
@@ -328,11 +398,10 @@ fn apply_insert_operation(
         );
     }
 
-    let content_str = resolve_operation_content(operation.content, operation.content_file)?;
+    let content_str = resolve_operation_content(content, content_file)?;
     let new_content_doc = parse_markdown(MarkdownParserState::default(), &content_str)
         .map_err(|e| anyhow!("Failed to parse content markdown: {}", e))?;
     let new_blocks = new_content_doc.blocks;
-    let position = operation.position;
 
     match found_node {
         FoundNode::Block { index, .. } => {
@@ -354,16 +423,18 @@ fn apply_insert_operation(
 fn apply_delete_operation(
     doc_blocks: &mut Vec<Block>,
     operation: DeleteOperation,
+    selector: Selector,
+    until_selector: Option<Selector>,
 ) -> anyhow::Result<bool> {
     let DeleteOperation {
-        selector,
+        selector: _,
+        selector_ref: _,
         comment: _,
         section,
-        until,
+        until: _,
+        until_ref: _,
     } = operation;
 
-    let selector = build_locator_selector(&selector)?;
-    let until_selector = build_optional_locator_selector(until.as_ref())?;
     let (found_node, is_ambiguous) = locate(&*doc_blocks, &selector)?;
 
     if is_ambiguous {
@@ -449,34 +520,183 @@ fn apply_replace_frontmatter_operation(
     replace_entire_frontmatter(parsed_document, new_value, format)
 }
 
-#[allow(dead_code)]
-fn build_locator_selector(selector: &TransactionSelector) -> anyhow::Result<Selector> {
-    let select_regex = if let Some(pattern) = &selector.select_regex {
-        Some(
-            Regex::new(pattern)
-                .with_context(|| "Invalid regex pattern in operation selector".to_string())?,
-        )
-    } else {
-        None
+#[derive(Debug)]
+struct SelectorResolution {
+    selector: Selector,
+    aliases: Vec<(String, Selector)>,
+}
+
+#[derive(Debug)]
+struct OptionalSelectorResolution {
+    selector: Option<Selector>,
+    aliases: Vec<(String, Selector)>,
+}
+
+fn resolve_operation_selector(
+    alias_map: &HashMap<String, Selector>,
+    selector: Option<&TransactionSelector>,
+    selector_ref: Option<&String>,
+    field_name: &str,
+) -> Result<SelectorResolution, SpliceError> {
+    match (selector, selector_ref) {
+        (Some(selector), None) => resolve_selector_tree(alias_map, selector),
+        (None, Some(alias)) => {
+            let resolved = alias_map
+                .get(alias)
+                .cloned()
+                .ok_or_else(|| SpliceError::SelectorAliasNotDefined(alias.clone()))?;
+            Ok(SelectorResolution {
+                selector: resolved,
+                aliases: Vec::new(),
+            })
+        }
+        (None, None) | (Some(_), Some(_)) => {
+            Err(SpliceError::AmbiguousSelectorSource(field_name.to_string()))
+        }
+    }
+}
+
+fn resolve_optional_operation_selector(
+    alias_map: &HashMap<String, Selector>,
+    selector: Option<&TransactionSelector>,
+    selector_ref: Option<&String>,
+    field_name: &str,
+) -> Result<OptionalSelectorResolution, SpliceError> {
+    match (selector, selector_ref) {
+        (Some(selector), None) => {
+            let resolved = resolve_selector_tree(alias_map, selector)?;
+            Ok(OptionalSelectorResolution {
+                selector: Some(resolved.selector),
+                aliases: resolved.aliases,
+            })
+        }
+        (None, Some(alias)) => {
+            let resolved = alias_map
+                .get(alias)
+                .cloned()
+                .ok_or_else(|| SpliceError::SelectorAliasNotDefined(alias.clone()))?;
+            Ok(OptionalSelectorResolution {
+                selector: Some(resolved),
+                aliases: Vec::new(),
+            })
+        }
+        (None, None) => Ok(OptionalSelectorResolution {
+            selector: None,
+            aliases: Vec::new(),
+        }),
+        (Some(_), Some(_)) => Err(SpliceError::AmbiguousSelectorSource(field_name.to_string())),
+    }
+}
+
+fn resolve_selector_tree(
+    alias_map: &HashMap<String, Selector>,
+    selector: &TransactionSelector,
+) -> Result<SelectorResolution, SpliceError> {
+    let select_regex = match &selector.select_regex {
+        Some(pattern) => Some(Regex::new(pattern).map_err(|err| {
+            SpliceError::OperationFailed(format!(
+                "Invalid regex pattern in operation selector: {}",
+                err
+            ))
+        })?),
+        None => None,
     };
 
-    let after = build_optional_locator_selector(selector.after.as_deref())?;
-    let within = build_optional_locator_selector(selector.within.as_deref())?;
+    let after_resolution = resolve_nested_selector(
+        alias_map,
+        selector.after.as_deref(),
+        selector.after_ref.as_ref(),
+        "after",
+    )?;
+    let within_resolution = resolve_nested_selector(
+        alias_map,
+        selector.within.as_deref(),
+        selector.within_ref.as_ref(),
+        "within",
+    )?;
 
-    Ok(Selector {
+    let mut aliases = after_resolution.aliases;
+    aliases.extend(within_resolution.aliases);
+
+    let locator_selector = Selector {
         select_type: selector.select_type.clone(),
         select_contains: selector.select_contains.clone(),
         select_regex,
         select_ordinal: selector.select_ordinal,
-        after: after.map(Box::new),
-        within: within.map(Box::new),
+        after: after_resolution.selector.map(Box::new),
+        within: within_resolution.selector.map(Box::new),
+    };
+
+    if let Some(alias) = &selector.alias {
+        aliases.push((alias.clone(), locator_selector.clone()));
+    }
+
+    Ok(SelectorResolution {
+        selector: locator_selector,
+        aliases,
     })
 }
 
-fn build_optional_locator_selector(
+fn resolve_nested_selector(
+    alias_map: &HashMap<String, Selector>,
     selector: Option<&TransactionSelector>,
-) -> anyhow::Result<Option<Selector>> {
-    selector.map(build_locator_selector).transpose()
+    selector_ref: Option<&String>,
+    field_name: &str,
+) -> Result<OptionalSelectorResolution, SpliceError> {
+    match (selector, selector_ref) {
+        (Some(selector), None) => {
+            let resolved = resolve_selector_tree(alias_map, selector)?;
+            Ok(OptionalSelectorResolution {
+                selector: Some(resolved.selector),
+                aliases: resolved.aliases,
+            })
+        }
+        (None, Some(alias)) => {
+            let resolved = alias_map
+                .get(alias)
+                .cloned()
+                .ok_or_else(|| SpliceError::SelectorAliasNotDefined(alias.clone()))?;
+            Ok(OptionalSelectorResolution {
+                selector: Some(resolved),
+                aliases: Vec::new(),
+            })
+        }
+        (None, None) => Ok(OptionalSelectorResolution {
+            selector: None,
+            aliases: Vec::new(),
+        }),
+        (Some(_), Some(_)) => Err(SpliceError::AmbiguousNestedSelectorSource(
+            field_name.to_string(),
+        )),
+    }
+}
+
+fn register_aliases(
+    alias_map: &mut HashMap<String, Selector>,
+    aliases: Vec<(String, Selector)>,
+) -> Result<(), SpliceError> {
+    if aliases.is_empty() {
+        return Ok(());
+    }
+
+    let mut pending = Vec::with_capacity(aliases.len());
+    let mut seen = HashSet::new();
+
+    for (alias, selector) in aliases {
+        if !seen.insert(alias.clone()) {
+            return Err(SpliceError::SelectorAliasAlreadyDefined(alias));
+        }
+        if alias_map.contains_key(&alias) {
+            return Err(SpliceError::SelectorAliasAlreadyDefined(alias));
+        }
+        pending.push((alias, selector));
+    }
+
+    for (alias, selector) in pending {
+        alias_map.insert(alias, selector);
+    }
+
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -924,18 +1144,23 @@ mod tests {
         };
 
         let operations = vec![Operation::Replace(ReplaceOperation {
-            selector: TxSelector {
+            selector: Some(TxSelector {
+                alias: None,
                 select_type: None,
                 select_contains: Some("Status: In Progress".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
                 after: None,
+                after_ref: None,
                 within: None,
-            },
+                within_ref: None,
+            }),
+            selector_ref: None,
             comment: None,
             content: Some("Status: **Complete**".to_string()),
             content_file: None,
             until: None,
+            until_ref: None,
         })];
 
         let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
@@ -966,14 +1191,18 @@ mod tests {
         };
 
         let operations = vec![Operation::Insert(InsertOperation {
-            selector: TxSelector {
+            selector: Some(TxSelector {
+                alias: None,
                 select_type: Some("li".to_string()),
                 select_contains: Some("Write documentation".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
                 after: None,
+                after_ref: None,
                 within: None,
-            },
+                within_ref: None,
+            }),
+            selector_ref: None,
             comment: None,
             content: Some("- [ ] Implement unit tests".to_string()),
             content_file: None,
@@ -1017,30 +1246,40 @@ mod tests {
 
         let operations = vec![
             Operation::Delete(DeleteOperation {
-                selector: TxSelector {
+                selector: Some(TxSelector {
+                    alias: None,
                     select_type: Some("li".to_string()),
                     select_contains: Some("Old task".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
                     after: None,
+                    after_ref: None,
                     within: None,
-                },
+                    within_ref: None,
+                }),
+                selector_ref: None,
                 comment: None,
                 section: false,
                 until: None,
+                until_ref: None,
             }),
             Operation::Delete(DeleteOperation {
-                selector: TxSelector {
+                selector: Some(TxSelector {
+                    alias: None,
                     select_type: Some("h2".to_string()),
                     select_contains: Some("Low Priority".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
                     after: None,
+                    after_ref: None,
                     within: None,
-                },
+                    within_ref: None,
+                }),
+                selector_ref: None,
                 comment: None,
                 section: true,
                 until: None,
+                until_ref: None,
             }),
         ];
 
@@ -1075,25 +1314,33 @@ mod tests {
         };
 
         let operations = vec![Operation::Replace(ReplaceOperation {
-            selector: TxSelector {
+            selector: Some(TxSelector {
+                alias: None,
                 select_type: Some("h2".to_string()),
                 select_contains: Some("Installation".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
                 after: None,
+                after_ref: None,
                 within: None,
-            },
+                within_ref: None,
+            }),
+            selector_ref: None,
             comment: None,
             content: Some("## Installation\nUpdated steps.\n".to_string()),
             content_file: None,
             until: Some(TxSelector {
+                alias: None,
                 select_type: Some("h2".to_string()),
                 select_contains: Some("Usage".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
                 after: None,
+                after_ref: None,
                 within: None,
+                within_ref: None,
             }),
+            until_ref: None,
         })];
 
         let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
@@ -1125,24 +1372,32 @@ mod tests {
         };
 
         let operations = vec![Operation::Delete(DeleteOperation {
-            selector: TxSelector {
+            selector: Some(TxSelector {
+                alias: None,
                 select_type: Some("li".to_string()),
                 select_contains: Some("Task Beta".to_string()),
                 select_regex: None,
                 select_ordinal: 1,
                 after: None,
+                after_ref: None,
                 within: Some(Box::new(TxSelector {
+                    alias: None,
                     select_type: Some("h2".to_string()),
                     select_contains: Some("Future Features".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
                     after: None,
+                    after_ref: None,
                     within: None,
+                    within_ref: None,
                 })),
-            },
+                within_ref: None,
+            }),
+            selector_ref: None,
             comment: None,
             section: false,
             until: None,
+            until_ref: None,
         })];
 
         let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
@@ -1178,31 +1433,41 @@ mod tests {
 
         let operations = vec![
             Operation::Replace(ReplaceOperation {
-                selector: TxSelector {
+                selector: Some(TxSelector {
+                    alias: None,
                     select_type: None,
                     select_contains: Some("Status: In Progress".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
                     after: None,
+                    after_ref: None,
                     within: None,
-                },
+                    within_ref: None,
+                }),
+                selector_ref: None,
                 comment: None,
                 content: Some("Status: **Complete**".to_string()),
                 content_file: None,
                 until: None,
+                until_ref: None,
             }),
             Operation::Delete(DeleteOperation {
-                selector: TxSelector {
+                selector: Some(TxSelector {
+                    alias: None,
                     select_type: Some("h2".to_string()),
                     select_contains: Some("Does Not Exist".to_string()),
                     select_regex: None,
                     select_ordinal: 1,
                     after: None,
+                    after_ref: None,
                     within: None,
-                },
+                    within_ref: None,
+                }),
+                selector_ref: None,
                 comment: None,
                 section: false,
                 until: None,
+                until_ref: None,
             }),
         ];
 
