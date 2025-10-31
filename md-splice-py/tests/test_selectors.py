@@ -33,3 +33,15 @@ def test_selector_conflicting_scopes_raise():
     base = Selector(select_type="heading")
     with pytest.raises(ConflictingScopeError):
         Selector(after=base, within=base)
+
+
+def test_selector_rejects_after_and_after_ref() -> None:
+    anchor = Selector(select_type="h2")
+    with pytest.raises(ValueError, match="after"):
+        Selector(after=anchor, after_ref="intro")
+
+
+def test_selector_rejects_within_and_within_ref() -> None:
+    scope = Selector(select_type="section")
+    with pytest.raises(ValueError, match="within"):
+        Selector(within=scope, within_ref="alias")

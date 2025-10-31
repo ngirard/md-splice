@@ -1486,4 +1486,178 @@ mod tests {
             "parsed document should remain unchanged on failure"
         );
     }
+
+    #[test]
+    fn process_apply_supports_selector_alias_reuse() {
+        let initial = "# Project Log\n\n## Overview\nSummary.\n\n## Changelog\n- Legacy entry\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
+
+        let operations = vec![
+            Operation::Replace(ReplaceOperation {
+                selector: Some(TxSelector {
+                    alias: Some("overview_h2".to_string()),
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Overview".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                    after: None,
+                    after_ref: None,
+                    within: None,
+                    within_ref: None,
+                }),
+                selector_ref: None,
+                comment: None,
+                content: "## Overview\nSummary.\n".to_string().into(),
+                content_file: None,
+                until: None,
+                until_ref: None,
+            }),
+            Operation::Replace(ReplaceOperation {
+                selector: Some(TxSelector {
+                    alias: Some("changelog_h2".to_string()),
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Changelog".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                    after: None,
+                    after_ref: Some("overview_h2".to_string()),
+                    within: None,
+                    within_ref: None,
+                }),
+                selector_ref: None,
+                comment: None,
+                content: "## Changelog\n- Legacy entry\n".to_string().into(),
+                content_file: None,
+                until: None,
+                until_ref: None,
+            }),
+            Operation::Insert(InsertOperation {
+                selector: None,
+                selector_ref: Some("changelog_h2".to_string()),
+                comment: None,
+                content: Some("- Added alias reuse support".to_string()),
+                content_file: None,
+                position: TxInsertPosition::AppendChild,
+            }),
+            Operation::Replace(ReplaceOperation {
+                selector: None,
+                selector_ref: Some("changelog_h2".to_string()),
+                comment: None,
+                content: "## Changelog\n- Added alias reuse support\n- Pruned legacy tasks\n"
+                    .to_string()
+                    .into(),
+                content_file: None,
+                until: None,
+                until_ref: None,
+            }),
+        ];
+
+        let frontmatter_changed = apply_operations(&mut blocks, &mut parsed_document, operations)
+            .expect("selector alias operations should succeed");
+        assert!(!frontmatter_changed);
+
+        let rendered = render_markdown(&Document { blocks }, PrinterConfig::default());
+        assert!(rendered.contains("- Added alias reuse support"));
+        assert!(rendered.contains("- Pruned legacy tasks"));
+    }
+
+    #[test]
+    fn process_apply_errors_on_missing_selector_alias() {
+        let initial = "# Notes\n\n## Topics\n- Alpha\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
+
+        let operations = vec![Operation::Insert(InsertOperation {
+            selector: None,
+            selector_ref: Some("missing_alias".to_string()),
+            comment: None,
+            content: Some("- Beta".to_string()),
+            content_file: None,
+            position: TxInsertPosition::AppendChild,
+        })];
+
+        let err = apply_operations(&mut blocks, &mut parsed_document, operations)
+            .expect_err("missing alias should error");
+        match err {
+            SpliceError::SelectorAliasNotDefined(alias) => {
+                assert_eq!(alias, "missing_alias");
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn process_apply_errors_on_duplicate_selector_alias() {
+        let initial = "# Notes\n\n## Overview\nDetails.\n";
+        let doc = parse_markdown(MarkdownParserState::default(), initial).unwrap();
+        let mut blocks = doc.blocks;
+        let mut parsed_document = ParsedDocument {
+            frontmatter: None,
+            body: initial.to_string(),
+            format: None,
+            frontmatter_block: None,
+        };
+
+        let operations = vec![
+            Operation::Replace(ReplaceOperation {
+                selector: Some(TxSelector {
+                    alias: Some("dup_alias".to_string()),
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Overview".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                    after: None,
+                    after_ref: None,
+                    within: None,
+                    within_ref: None,
+                }),
+                selector_ref: None,
+                comment: None,
+                content: "## Overview\nDetails.\n".to_string().into(),
+                content_file: None,
+                until: None,
+                until_ref: None,
+            }),
+            Operation::Insert(InsertOperation {
+                selector: Some(TxSelector {
+                    alias: Some("dup_alias".to_string()),
+                    select_type: Some("h2".to_string()),
+                    select_contains: Some("Overview".to_string()),
+                    select_regex: None,
+                    select_ordinal: 1,
+                    after: None,
+                    after_ref: None,
+                    within: None,
+                    within_ref: None,
+                }),
+                selector_ref: None,
+                comment: None,
+                content: Some("## Duplicate heading".to_string()),
+                content_file: None,
+                position: TxInsertPosition::After,
+            }),
+        ];
+
+        let err = apply_operations(&mut blocks, &mut parsed_document, operations)
+            .expect_err("duplicate alias should error");
+        match err {
+            SpliceError::SelectorAliasAlreadyDefined(alias) => {
+                assert_eq!(alias, "dup_alias");
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
 }

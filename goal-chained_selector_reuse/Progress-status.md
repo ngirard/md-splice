@@ -1,11 +1,10 @@
 # Progress Log
 
 ## Latest update
-- **update 02:** Milestones 1–4 completed; selector alias resolution wired through Rust core, Python bindings, CLI, and tests.
+- **update 03:** Milestones 5 & 6 finished with alias-focused tests across Rust/Python plus refreshed documentation.
 
 ## Active Workstreams
-- Milestone 5 — author targeted alias-focused test coverage (Rust + Python) beyond adjusted regressions.
-- Milestone 6 — documentation updates for selector alias workflows (README + Python README).
+- None — all strategy milestones delivered.
 
 ## Archive Reference
 
@@ -23,5 +22,4 @@ granular changelogs before drafting new summaries here.
    action taken so future agents can trace decisions.
 
 ## Next steps
-- Craft alias-specific happy-path and failure-path tests covering `selector_ref`, `within_ref`, `after_ref`, and duplicate alias errors.
-- Update user documentation (root README and Python README) with selector reuse examples and guidance.
+- No follow-up required; treat the goal as complete unless new requirements emerge.
