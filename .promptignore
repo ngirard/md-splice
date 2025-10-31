@@ -30,3 +30,7 @@ pyo3_migration_guide.md
 
 CHANGELOG.md
 Cargo.toml
+
+docs
+/goal-*
+script.py
