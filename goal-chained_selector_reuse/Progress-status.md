@@ -1,4 +1,4 @@
-# QUEST in Rust - Progress Log
+# Progress Log
 
 ## Latest update
 
